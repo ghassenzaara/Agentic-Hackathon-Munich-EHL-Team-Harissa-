@@ -1,0 +1,5 @@
+# Devin edits on Linux, we edit on Windows. Normalise so the git history we show
+# the jury is real design diffs and not line-ending churn.
+* text=auto eol=lf
+*.stl binary
+*.step binary

@@ -1,0 +1,103 @@
+{
+  "provenance": "SYNTHETIC -- procedurally generated, not patient data. Morphometry grounded in published adult femoral literature. No clinical or regulatory claim.",
+  "note": "Surgical planning is a declared PRE-SOLVED input for this project. These positions are locked: the implant must accommodate them, not move them.",
+  "bone_mesh": "bone.stl",
+  "screws": [
+    {
+      "id": "screw_0",
+      "index": 0,
+      "entry_mm": [
+        30.36,
+        0.0,
+        115.0
+      ],
+      "direction": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_1",
+      "index": 1,
+      "entry_mm": [
+        32.984,
+        0.0,
+        145.0
+      ],
+      "direction": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_2",
+      "index": 2,
+      "entry_mm": [
+        34.577,
+        0.0,
+        175.0
+      ],
+      "direction": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_3",
+      "index": 3,
+      "entry_mm": [
+        34.985,
+        0.0,
+        205.0
+      ],
+      "direction": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_4",
+      "index": 4,
+      "entry_mm": [
+        34.196,
+        0.0,
+        235.0
+      ],
+      "direction": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_5",
+      "index": 5,
+      "entry_mm": [
+        32.394,
+        0.0,
+        265.0
+      ],
+      "direction": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    }
+  ]
+}
