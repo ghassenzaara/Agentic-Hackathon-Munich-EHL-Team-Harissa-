@@ -84,9 +84,20 @@ def validate_locally(validators: str = "geometry,stress") -> Report:
     return Report.load(REPO_ROOT / "out" / "report.json")
 
 
+def _iteration_budget(default: int = 8) -> int:
+    """The cap lives in inputs/case.json so there is one number, not two."""
+    case_path = REPO_ROOT / "inputs" / "case.json"
+    if not case_path.exists():
+        return default
+    try:
+        return int(json.loads(case_path.read_text(encoding="utf-8"))["iteration_budget"])
+    except (ValueError, KeyError, TypeError):
+        return default
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="harness.loop", description=__doc__)
-    ap.add_argument("--max-iterations", type=int, default=8)
+    ap.add_argument("--max-iterations", type=int, default=_iteration_budget())
     ap.add_argument("--branch", default="devin/design")
     ap.add_argument("--acu-limit", type=int, default=30)
     ap.add_argument("--dry-run", action="store_true", help="print iteration 1's prompt and exit")

@@ -178,11 +178,12 @@ def keepout_zones() -> dict:
                 "type": "sphere",
                 "center_mm": [round(lateral_surface_x(z_mid), 3), 14.8, z_mid],
                 "radius_mm": 6.0,
-                # Placed so a 16 mm plate clears by 0.8 mm and an 18 mm plate
-                # encroaches. A knife-edge margin here would make the check
+                # Centre y=14.8 minus the 6.0 radius puts the wall at a half-width
+                # of 8.8 mm, so the plate may widen to 17.6 mm. The 16 mm baseline
+                # clears by 0.8 mm. A knife-edge margin here would make the check
                 # float-point flaky, which in an autonomous loop reads as the
                 # design randomly regressing.
-                "rationale": "Blocks widening the plate past ~17 mm at mid-span.",
+                "rationale": "Blocks widening the plate past 17.6 mm at mid-span.",
             },
             {
                 "id": "proximal_neurovascular_corridor",

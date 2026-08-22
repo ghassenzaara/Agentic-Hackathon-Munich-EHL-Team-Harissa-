@@ -8,8 +8,11 @@ Owner: B. This is a working first pass, not a finished suite. Each check is
 independent, so extending it is additive.
 
 Everything is measured off the exported STL rather than the CadQuery model on
-purpose: the STL is what a manufacturer receives, and it is the one artefact that
-stays valid if the generator is rewritten to use a different kernel.
+purpose: a mesh is what the ray casts and volume queries here need, and it is the
+one artefact that stays valid if the generator is rewritten to use a different
+kernel. STEP is the manufacturing deliverable (see autoimplants/export.py); the
+STL is the measurement surface. Its tessellation tolerance is set tight enough
+that faceting error alone cannot fail a threshold.
 """
 
 from __future__ import annotations
@@ -69,13 +72,14 @@ def _x_chords(mesh, y: float, z: float) -> list[float]:
 # --- individual checks -------------------------------------------------------
 
 
-def check_watertight(mesh) -> Check:
+def check_watertight(mesh, case: dict) -> Check:
+    required = bool(case.get("thresholds", {}).get("require_watertight", True))
     ok = bool(mesh.is_watertight and mesh.is_winding_consistent)
     return Check(
         id="manifold_watertight",
-        status=PASS if ok else FAIL,
+        status=PASS if (ok or not required) else FAIL,
         value=1.0 if ok else 0.0,
-        limit=1.0,
+        limit=1.0 if required else 0.0,
         unit="bool",
         message=(
             "exported solid is a closed, consistently wound manifold"
@@ -83,6 +87,7 @@ def check_watertight(mesh) -> Check:
             else f"solid is not manifold (watertight={mesh.is_watertight}, "
                  f"winding={mesh.is_winding_consistent}); it is not manufacturable "
                  f"and downstream checks cannot be trusted"
+                 + ("" if required else " -- not enforced: require_watertight is off")
         ),
     )
 
@@ -211,17 +216,29 @@ def check_bone_collision(mesh, case: dict) -> Check:
     )
 
 
-def check_bone_conformance(mesh, case: dict) -> Check:
-    """Largest residual gap between the implant's bone-facing surface and the bone.
+def check_bone_conformance(mesh, case: dict) -> list[Check]:
+    """The bone-implant gap, bounded from both sides.
 
-    This is the check the generic flat plate fails on this patient.
+    Too large and the plate does not follow the shaft -- this is the check the
+    generic flat plate fails on this patient. Too small is also a failure, and a
+    less obvious one: pressing a plate onto bone crushes the periosteum and
+    interrupts the blood supply the fracture heals through. Zero clearance is not
+    the optimum, which is why limited-contact plate designs exist.
+
+    Both bounds come out of one ray-cast pass over the same profile. Note the
+    profile is sampled along the y=0 centreline only, so off-centre seating is
+    not measured by either bound.
     """
-    limit = case.get("thresholds", {}).get("max_bone_gap_mm", 1e9)
+    thresholds = case.get("thresholds", {})
+    max_limit = thresholds.get("max_bone_gap_mm", 1e9)
+    min_limit = thresholds.get("min_bone_gap_mm")
     lo, hi = mesh.bounds
     prof = surface_profile(float(lo[2]), float(hi[2]), n=N_PROFILE_SAMPLES)
 
     worst_gap = -float("inf")
     worst_z = None
+    tightest_gap = float("inf")
+    tightest_z = None
     for z, bone_x in prof:
         if np.isnan(bone_x):
             continue
@@ -235,30 +252,70 @@ def check_bone_conformance(mesh, case: dict) -> Check:
         gap = float(hits[:, 0].min()) - float(bone_x)
         if gap > worst_gap:
             worst_gap, worst_z = gap, float(z)
+        if gap < tightest_gap:
+            tightest_gap, tightest_z = gap, float(z)
 
     if worst_z is None:
-        return Check(
-            id="bone_conformance_gap",
-            status=FAIL,
-            unit="mm",
-            message="could not measure the bone-implant gap anywhere along the footprint",
-        )
+        return [
+            Check(
+                id="bone_conformance_gap",
+                status=FAIL,
+                unit="mm",
+                message="could not measure the bone-implant gap anywhere along the footprint",
+            ),
+            Check(
+                id="bone_clearance_min",
+                status=FAIL,
+                unit="mm",
+                message="could not measure the bone-implant gap anywhere along the footprint",
+            ),
+        ]
 
-    ok = worst_gap <= limit + 1e-6
-    return Check(
-        id="bone_conformance_gap",
-        status=PASS if ok else FAIL,
-        value=round(worst_gap, 3),
-        limit=limit,
-        unit="mm",
-        location=[round(float(mesh.bounds[0][0]), 3), 0.0, round(worst_z, 2)],
-        message=(
-            "implant follows the bone surface within tolerance"
-            if ok
-            else f"implant stands {worst_gap:.2f} mm off the bone at z={worst_z:.0f} mm; "
-                 f"the plate must follow the contour of the shaft"
-        ),
+    ok_max = worst_gap <= max_limit + 1e-6
+    checks = [
+        Check(
+            id="bone_conformance_gap",
+            status=PASS if ok_max else FAIL,
+            value=round(worst_gap, 3),
+            limit=max_limit,
+            unit="mm",
+            location=[round(float(mesh.bounds[0][0]), 3), 0.0, round(worst_z, 2)],
+            message=(
+                "implant follows the bone surface within tolerance"
+                if ok_max
+                else f"implant stands {worst_gap:.2f} mm off the bone at z={worst_z:.0f} mm; "
+                     f"the plate must follow the contour of the shaft"
+            ),
+        )
+    ]
+
+    # A negative gap means the bone-facing surface has crossed inside the bone
+    # surface. check_bone_collision only samples implant vertices, so a face
+    # passing through the bone between vertices reaches this check and nothing
+    # else.
+    ok_min = min_limit is None or tightest_gap >= min_limit - 1e-6
+    checks.append(
+        Check(
+            id="bone_clearance_min",
+            status=PASS if ok_min else FAIL,
+            value=round(tightest_gap, 3),
+            limit=min_limit,
+            unit="mm",
+            location=[round(float(mesh.bounds[0][0]), 3), 0.0, round(tightest_z, 2)],
+            message=(
+                "implant keeps a periosteal clearance off the bone"
+                if ok_min
+                else f"implant sits {tightest_gap:.2f} mm from the bone at "
+                     f"z={tightest_z:.0f} mm, inside the {min_limit} mm minimum"
+                     + (
+                         " -- the surface has crossed into the bone"
+                         if tightest_gap < 0
+                         else " -- contact this tight strips the periosteum"
+                     )
+            ),
+        )
     )
+    return checks
 
 
 def check_screws(mesh, case: dict) -> list[Check]:
@@ -270,7 +327,10 @@ def check_screws(mesh, case: dict) -> list[Check]:
         d = np.array(s["direction"], dtype=float)
         r = 0.45 * float(s["diameter_mm"])  # just inside the nominal bore
 
-        # Centre ray plus a ring, all launched from outside the part.
+        # Centre ray plus a ring, all launched from outside the part. The ring is
+        # built in the Y-Z plane, which is only perpendicular to the trajectory
+        # because every planned screw runs along -X. Generalise this if a screw
+        # direction ever stops being axis-aligned.
         offsets = [np.zeros(3)]
         for ang in (0.0, np.pi / 2, np.pi, 3 * np.pi / 2):
             offsets.append(np.array([0.0, r * np.cos(ang), r * np.sin(ang)]))
@@ -279,20 +339,24 @@ def check_screws(mesh, case: dict) -> list[Check]:
         origins = np.array([origin + o for o in offsets])
         dirs = np.tile(d, (len(offsets), 1))
         hits, _, _ = mesh.ray.intersects_location(ray_origins=origins, ray_directions=dirs)
+        # No intersection means the bore is open: the rays travel through the
+        # hole without meeting solid. Any hit means material is in the way.
         if len(hits):
             blocked.append(s["id"])
 
     n_ok = len(_screws()) - len(blocked)
+    required = int(case.get("thresholds", {}).get("require_all_screws", len(_screws())))
+    ok = n_ok >= required
     checks.append(
         Check(
             id="screw_trajectories_clear",
-            status=PASS if not blocked else FAIL,
+            status=PASS if ok else FAIL,
             value=float(n_ok),
-            limit=float(case.get("thresholds", {}).get("require_all_screws", len(_screws()))),
+            limit=float(required),
             unit="count",
             message=(
-                "all planned screw trajectories pass through the implant unobstructed"
-                if not blocked
+                f"{n_ok} of {len(_screws())} planned screws have an open bore through the plate"
+                if ok
                 else f"obstructed screw bores: {', '.join(blocked)}. Screw positions are "
                      f"locked planning input -- the implant must accommodate them."
             ),
@@ -302,6 +366,7 @@ def check_screws(mesh, case: dict) -> list[Check]:
 
 
 def check_keepouts(mesh, case: dict) -> list[Check]:
+    limit = float(case.get("thresholds", {}).get("max_keepout_encroach_mm", 0.0))
     checks = []
     for zone in _keepouts():
         if zone.get("type") != "sphere":
@@ -312,13 +377,13 @@ def check_keepouts(mesh, case: dict) -> list[Check]:
         d = float(dist[0])
         inside = bool(mesh.contains(center)[0])
         encroach = radius - d
-        violated = inside or encroach > 0
+        violated = inside or encroach > limit + 1e-6
         checks.append(
             Check(
                 id=f"keepout_{zone['id']}",
                 status=FAIL if violated else PASS,
                 value=round(max(encroach, 0.0), 3),
-                limit=0.0,
+                limit=limit,
                 unit="mm",
                 location=[round(float(c), 3) for c in center[0]],
                 message=(
@@ -338,12 +403,12 @@ def check_keepouts(mesh, case: dict) -> list[Check]:
 def validate(implant_path: str, case: dict) -> Report:
     mesh = _load(implant_path)
 
-    checks: list[Check] = [check_watertight(mesh)]
+    checks: list[Check] = [check_watertight(mesh, case)]
     checks += check_envelope(mesh, case)
     checks.append(check_min_wall(mesh, case))
     checks.append(check_mass(mesh, case))
     checks.append(check_bone_collision(mesh, case))
-    checks.append(check_bone_conformance(mesh, case))
+    checks += check_bone_conformance(mesh, case)
     checks += check_screws(mesh, case)
     checks += check_keepouts(mesh, case)
 

@@ -46,6 +46,7 @@ Run it after every change. Never commit a design you have not validated.
 | `autoimplants/params.py` | Editable. |
 | `autoimplants/export.py` | Editable. |
 | `runs/` | Editable — write your artefacts here. |
+| `out/` | Editable — build and report output lands here. |
 | everything else | **Locked.** |
 
 Specifically locked, and why:
@@ -77,7 +78,7 @@ Check the arithmetic before reaching for a scalar tweak:
 - Uniform thickening is capped by the 39 g implant mass budget. The baseline is
   already 37.0 g, so you have about 5% more volume — worth roughly a 1.11×
   bending-stress reduction.
-- Widening past ~17 mm hits the `perforating_vessel_bundle` keepout at mid-span.
+- Widening past 17.6 mm hits the `perforating_vessel_bundle` keepout at mid-span (zone centre y=14.8 mm less its 6.0 mm radius); the baseline sits at 16 mm.
 - Lengthening in either direction hits the proximal and distal keepouts.
 
 When the numbers say a scalar change cannot close the gap, change the geometry.

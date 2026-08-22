@@ -39,6 +39,7 @@ Editable — this is the design surface:
 - `autoimplants/generator.py` — the CAD generator. **This is the file that matters.**
 - `autoimplants/params.py` — default parameter values.
 - `autoimplants/export.py` — export settings.
+- `runs/` and `out/` — write your artefacts and build output here.
 
 Locked — do not modify, and do not work around:
 

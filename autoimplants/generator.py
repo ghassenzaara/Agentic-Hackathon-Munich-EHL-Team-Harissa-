@@ -87,7 +87,7 @@ def build_implant(params: dict) -> cq.Workplane:
     """Build the implant solid from params. FROZEN SIGNATURE.
 
     Baseline: flat straight plate, constant thickness, six round screw holes,
-    mounted tangent to the most protruding point of the bone so that it does not
+    standing clear of the most protruding point of the bone so that it does not
     intersect the shaft.
     """
     _guard_unimplemented(params)
@@ -97,14 +97,17 @@ def build_implant(params: dict) -> cq.Workplane:
     thickness = float(params["thickness_mm"])
     hole_d = float(params["hole_diameter_mm"])
     fillet = float(params["fillet_mm"])
+    clearance = float(params["mount_clearance_mm"])
 
     screw_z = _screw_z()
     z_center = 0.5 * (min(screw_z) + max(screw_z))
     z0, z1 = z_center - length / 2.0, z_center + length / 2.0
 
     # A flat plate has to clear the most protruding point of the bow, otherwise it
-    # cuts into the shaft. This is exactly why it then gapes at both ends.
-    mount_x = max_surface_x(z0, z1)
+    # cuts into the shaft. This is exactly why it then gapes at both ends. The
+    # clearance is held at the apex, so the gap only grows from there -- which is
+    # the whole problem a contoured plate solves.
+    mount_x = max_surface_x(z0, z1) + clearance
 
     plate = (
         cq.Workplane("YZ")

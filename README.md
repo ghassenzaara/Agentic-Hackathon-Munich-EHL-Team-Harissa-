@@ -48,7 +48,7 @@ python -m harness.guard <base-sha>                       # did Devin only touch 
 ## The loop
 
 ```
-generate (CadQuery) → export STL/STEP → geometry validator → [pass?]
+generate (CadQuery) → export STEP (deliverable) + STL (measured) → geometry validator → [pass?]
                                               ↓ fail
                                     surrogate stress validator → [pass?]
                                               ↓ fail
@@ -81,7 +81,7 @@ that **no combination of scalar parameter tweaks can pass**:
 
 - The baseline plate is 37.0 g against a 39 g budget, so uniform thickening buys
   at most ~5% more volume — a 1.11× bending-stress reduction, not enough.
-- Widening past ~17 mm hits the `perforating_vessel_bundle` keepout.
+- Widening past 17.6 mm hits the `perforating_vessel_bundle` keepout (centre y=14.8 mm less a 6.0 mm radius); the baseline sits at 16 mm.
 - Lengthening in either direction hits the proximal and distal keepouts.
 
 What remains is contouring the plate to the bone and adding local reinforcement:
@@ -96,10 +96,11 @@ See `design_space_note` in `inputs/case.json` before recalibrating anything.
 
 ## Guardrail
 
-`harness/guard.py` is an allowlist, not a denylist: Devin may edit
-`generator.py`, `params.py` and `export.py`, and nothing else. A commit touching
-the validators, the thresholds, the anatomy or the bone sampler makes the
-iteration invalid. Anything nobody thought about defaults to locked.
+`harness/guard.py` is an allowlist, not a denylist. Devin may edit
+`generator.py`, `params.py` and `export.py`, and write into `runs/` and `out/`.
+Nothing else. A commit touching the validators, the thresholds, the anatomy or the
+bone sampler makes the iteration invalid. Anything nobody thought about defaults to
+locked — the list in `EDITABLE_GLOBS` is the whole of it.
 
 That turns "how do you know it didn't game the metric?" into a command:
 
@@ -116,5 +117,17 @@ diameter, 22 mm anterior bow ⇒ 0.91 m radius of curvature). Screw positions ar
 sampled *on the generated surface* rather than hand-typed, so the validator is
 never checking the implant against numbers that do not touch the bone.
 
-That anterior bow is what makes the generic flat plate fail on this patient:
-6.17 mm of measured mid-span standoff against a 1.5 mm limit.
+That anterior bow is what makes the generic flat plate fail on this patient. The
+plate is mounted with a 0.4 mm clearance at the apex of the bow, and because it is
+straight the gap can only grow from there — 6.57 mm at the proximal end, against
+the 1.5 mm `max_bone_gap_mm` limit.
+
+The gap is bounded from both sides. `min_bone_gap_mm` is 0.1 mm, because a plate
+pressed onto bone crushes the periosteum and interrupts the blood supply the
+fracture heals through — zero clearance is a failure, not an optimum. That pair of
+bounds is what forces contouring: the plate cannot be pushed inward to close the
+gap without violating the floor.
+
+(Not to be confused with `envelope_standoff`, a different check with a 6.0 mm
+limit, which measures how far the plate's *outer* surface protrudes into soft
+tissue.)

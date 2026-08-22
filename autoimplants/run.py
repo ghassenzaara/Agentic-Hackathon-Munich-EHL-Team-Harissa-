@@ -28,7 +28,12 @@ DEFAULT_CASE = REPO_ROOT / "inputs" / "case.json"
 # from the very first minute of the hackathon.
 _FALLBACK_CASE = {
     "case_id": "FALLBACK",
-    "thresholds": {"max_stress_MPa": 350.0, "min_wall_mm": 2.5, "max_bone_gap_mm": 1.5},
+    "thresholds": {
+        "max_stress_MPa": 350.0,
+        "min_wall_mm": 2.5,
+        "max_bone_gap_mm": 1.5,
+        "min_bone_gap_mm": 0.1,
+    },
 }
 
 

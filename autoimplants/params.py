@@ -17,6 +17,13 @@ DEFAULT_PARAMS: dict = {
     "width_mm": 16.0,
     "thickness_mm": 3.0,
 
+    # Gap held between the bone-facing surface and the bone. Deliberate, not slop:
+    # a plate pressed onto bone crushes the periosteum and interrupts the blood
+    # supply the fracture heals through, so thresholds.min_bone_gap_mm makes zero
+    # clearance a failure. Mounting exactly tangent also puts the measured gap on a
+    # knife edge, where its sign depends on ray-sample alignment.
+    "mount_clearance_mm": 0.4,
+
     # --- topology handles (baseline ignores these; Devin reaches for them) -----
     # [[s, t], ...] with s in 0..1 along the plate length, t in mm
     "thickness_profile": [],
