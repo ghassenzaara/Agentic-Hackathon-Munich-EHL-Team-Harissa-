@@ -1,3 +1,34 @@
+# secrets
+.env
+.env.local
+*.key
+
+# data + run outputs
+data/
+out/
+runs/
+*.stl
+*.step
+*.inp
+*.frd
+*.dat
+*.gcode
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# pixi: the solved env is a build artifact, the lockfile is NOT --
+# pixi.lock is what makes the toolchain reproducible on the Devin machine.
+.pixi/
+
+# os
+.DS_Store
+
+# personal scratch, not for submission
+my_comments.md
 # secrets — first line for a reason
 .env
 .env.local
