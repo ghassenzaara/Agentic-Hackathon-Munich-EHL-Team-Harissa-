@@ -1,0 +1,24 @@
+# secrets
+.env
+.env.local
+*.key
+
+# data + run outputs
+data/
+out/
+runs/
+*.stl
+*.step
+*.inp
+*.frd
+*.dat
+*.gcode
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# os
+.DS_Store
