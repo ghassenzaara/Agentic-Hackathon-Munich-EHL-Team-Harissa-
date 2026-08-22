@@ -1,0 +1,27 @@
+Mohamed@LAPTOP-78CQDJTU MINGW64 ~/projects/ehL devin/Agentic-Hackathon-Munich-EHL-Team-Harissa- (setup/skeleton)
+$ .venv/Scripts/python.exe -m harness.smoke
+session   devin-8d9e285bdc224a229f8ac202790a14b6
+watch     https://app.devin.ai/sessions/8d9e285bdc224a229f8ac202790a14b6
+branch    devin/smoke-201000
+[20:10:02] status -> None
+[20:10:17] status -> working
+[20:11:51] status -> blocked
+
+--- structured output ---
+{
+  "notes": "The stated base branch 'main' contained only .claude/.entire settings; all project files (setup.sh, autoimplants/, etc.) were on origin/setup/skeleton, so devin/smoke-201000 was branched from setup/skeleton instead. Everything else ran as specified: setup.sh completed via uv (Python 3.12.10, cadquery 2.8.0), validator exited 1 with expected bone_conformance_gap failure (19/20 checks passing; stress checks SKIP).",
+  "branch": "devin/smoke-201000",
+  "pushed": true,
+  "setup_ok": true,
+  "commit_sha": "52da3498fa9107f01691f3119ab517fa8dd817ab",
+  "cadquery_ok": true,
+  "failing_checks": [
+    "bone_conformance_gap"
+  ],
+  "python_version": "3.12.10",
+  "validator_exit_code": 1
+}
+
+SMOKE TEST PASSED
+commit 52da3498fa9107f01691f3119ab517fa8dd817ab on devin/smoke-201000
+Devin can clone, install CadQuery, run our validator, commit and push.
