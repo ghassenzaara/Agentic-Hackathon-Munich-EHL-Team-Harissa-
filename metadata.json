@@ -3,12 +3,16 @@
   "checkpoint_id": "01M0NE9NQV2G6W35VXWPXDY9GP",
   "strategy": "manual-commit",
   "branch": "prototype_02",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     ".env.example",
     "pixi.toml",
     "resources.md",
-    "src/fetch/fetch_paed_ssm.sh"
+    "src/README.md",
+    "src/fetch/fetch_paed_ssm.sh",
+    "src/refs/CITATIONS.md",
+    "src/refs/DATA_NOTES.md",
+    "suggested_plan.md"
   ],
   "sessions": [
     {
@@ -17,13 +21,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 16,
-    "cache_creation_tokens": 11538,
-    "cache_read_tokens": 1154333,
-    "output_tokens": 5742,
-    "api_call_count": 8
+    "input_tokens": 68,
+    "cache_creation_tokens": 52918,
+    "cache_read_tokens": 4538445,
+    "output_tokens": 31387,
+    "api_call_count": 34
   }
 }
