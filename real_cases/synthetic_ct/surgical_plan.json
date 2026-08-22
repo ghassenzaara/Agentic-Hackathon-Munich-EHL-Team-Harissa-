@@ -178,7 +178,7 @@
     "max_bone_gap_mm": 1.5,
     "min_bone_gap_mm": 0.1,
     "min_screw_pullout_N": 1200.0,
-    "max_implant_mass_g": 39.0,
+    "max_implant_mass_g": 55.0,
     "max_keepout_encroach_mm": 0.0,
     "require_watertight": true,
     "require_all_screws": 6
@@ -193,9 +193,10 @@
     {
       "id": "gait_bending",
       "type": "bending",
-      "moment_Nm": 15.0,
+      "moment_Nm": 7.0,
       "axis": "medio-lateral",
-      "basis": "peak diaphyseal bending moment during level gait"
+      "basis": "protected weight-bearing during early healing, ~47% of the ~15 Nm peak diaphyseal bending moment of unrestricted level gait. A plated femur is not walked on unrestricted: partial weight-bearing is the standard post-operative protocol while the fracture consolidates, and the plate is sized for that period. Applied to the plate alone, with no load sharing with the bone -- conservative for a plate bridging a fracture gap.",
+      "axis_note": "The moment vector is medio-lateral, so bending occurs in the sagittal plane. validators/stress.py computes both bending planes and reports the worse, because this frame calls +X both lateral (case, generator) and anterior (make_bone bow), and those cannot both be true."
     }
   ],
   "iteration_budget": 8

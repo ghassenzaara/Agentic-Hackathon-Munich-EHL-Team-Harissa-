@@ -1,9 +1,4 @@
-"""Small Devin API client used by the smoke test and design loop.
-
-The default is Devin's current organization-scoped v3 API. Legacy v1 remains
-supported when ``DEVIN_API_BASE`` ends in ``/v1`` so an existing event key can
-still be used while it is being migrated.
-"""
+"""Small client for Devin's organization-scoped v3 API."""
 
 from __future__ import annotations
 
@@ -16,8 +11,8 @@ import requests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE_URL = "https://api.devin.ai/v3"
+DEFAULT_ACU_LIMIT = 5
 
-_V1_TERMINAL = {"blocked", "expired", "finished"}
 _V3_TERMINAL_STATUS = {"error", "exit", "suspended"}
 _V3_TERMINAL_DETAIL = {
     "error",
@@ -71,9 +66,13 @@ class DevinClient:
         self.base_url = (
             base_url or os.environ.get("DEVIN_API_BASE") or DEFAULT_BASE_URL
         ).rstrip("/")
-        self.is_v3 = self.base_url.endswith("/v3")
+        if not self.base_url.endswith("/v3"):
+            raise DevinError(
+                "DEVIN_API_BASE must point to the v3 API (for example "
+                "https://api.devin.ai/v3)."
+            )
         self.org_id = org_id or os.environ.get("DEVIN_ORG_ID", "")
-        if self.is_v3 and not self.org_id:
+        if not self.org_id:
             raise DevinError(
                 "DEVIN_ORG_ID is required by the v3 API. Find it under Devin "
                 "Settings > Service users and add it to .env."
@@ -86,9 +85,7 @@ class DevinClient:
 
     @property
     def sessions_path(self) -> str:
-        if self.is_v3:
-            return f"/organizations/{self.org_id}/sessions"
-        return "/sessions"
+        return f"/organizations/{self.org_id}/sessions"
 
     def _request(self, method: str, path: str, **kw: Any) -> dict:
         try:
@@ -109,12 +106,9 @@ class DevinClient:
         structured_output_schema: dict | None = None,
         max_acu_limit: int | None = None,
         platform: str | None = None,
-        snapshot_id: str | None = None,
-        idempotent: bool = True,
     ) -> dict:
-        """Start a session using the fields supported by the selected API version."""
+        """Start a session, requiring validated structured output when a schema is given."""
         platform = platform or os.environ.get("DEVIN_PLATFORM") or None
-        snapshot_id = snapshot_id or os.environ.get("DEVIN_SNAPSHOT_ID") or None
         body: dict[str, Any] = {"prompt": prompt}
         if title:
             body["title"] = title
@@ -122,18 +116,12 @@ class DevinClient:
             body["tags"] = tags
         if structured_output_schema:
             body["structured_output_schema"] = structured_output_schema
-            if self.is_v3:
-                body["structured_output_required"] = True
+            body["structured_output_required"] = True
         if max_acu_limit is not None:
             body["max_acu_limit"] = max_acu_limit
 
-        if self.is_v3:
-            if platform:
-                body["platform"] = platform
-        else:
-            body["idempotent"] = idempotent
-            if snapshot_id:
-                body["snapshot_id"] = snapshot_id
+        if platform:
+            body["platform"] = platform
 
         return self._request("POST", self.sessions_path, json=body)
 
@@ -141,16 +129,12 @@ class DevinClient:
         return self._request("GET", f"{self.sessions_path}/{session_id}")
 
     def send_message(self, session_id: str, message: str) -> dict:
-        suffix = "messages" if self.is_v3 else "message"
         return self._request(
-            "POST", f"{self.sessions_path}/{session_id}/{suffix}", json={"message": message}
+            "POST", f"{self.sessions_path}/{session_id}/messages", json={"message": message}
         )
 
     @staticmethod
     def is_terminal(payload: dict) -> bool:
-        legacy = payload.get("status_enum")
-        if legacy:
-            return legacy in _V1_TERMINAL
         return (
             payload.get("status") in _V3_TERMINAL_STATUS
             or payload.get("status_detail") in _V3_TERMINAL_DETAIL
@@ -158,7 +142,7 @@ class DevinClient:
 
     @staticmethod
     def status_label(payload: dict) -> str:
-        status = payload.get("status_enum") or payload.get("status") or "unknown"
+        status = payload.get("status") or "unknown"
         detail = payload.get("status_detail")
         return f"{status}/{detail}" if detail else str(status)
 

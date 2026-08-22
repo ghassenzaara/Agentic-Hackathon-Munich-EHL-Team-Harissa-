@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 from autoimplants.contracts import Report
-from .devin_client import DevinClient
-from .guard import check_range
+from .devin_client import DEFAULT_ACU_LIMIT, DevinClient
+from .guard import check_range, is_ancestor
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROMPT_TEMPLATE = REPO_ROOT / "prompts" / "fix_iteration.md"
@@ -92,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="harness.loop", description=__doc__)
     ap.add_argument("--max-iterations", type=int, default=_iteration_budget())
     ap.add_argument("--branch", default="devin/design")
-    ap.add_argument("--acu-limit", type=int, default=5)
+    ap.add_argument("--acu-limit", type=int, default=DEFAULT_ACU_LIMIT)
     ap.add_argument("--dry-run", action="store_true", help="print iteration 1's prompt and exit")
     args = ap.parse_args(argv)
 
@@ -142,8 +142,19 @@ def main(argv: list[str] | None = None) -> int:
             print(out.get("rationale", ""))
             return 2
 
-        subprocess.run(["git", "fetch", "origin", args.branch], cwd=REPO_ROOT, check=False)
+        fetched = subprocess.run(
+            ["git", "fetch", "origin", args.branch], cwd=REPO_ROOT, check=False
+        )
+        if fetched.returncode != 0:
+            print(f"Could not fetch origin/{args.branch}; stopping before validation.")
+            return 4
         remote_ref = f"origin/{args.branch}"
+        if not is_ancestor(base_sha, remote_ref):
+            print(
+                f"ITERATION INVALID -- {remote_ref} does not descend from the "
+                f"iteration base {base_sha}."
+            )
+            return 3
         clean, bad = check_range(base_sha, remote_ref)
         if not clean:
             print("ITERATION INVALID -- locked files modified:")
@@ -151,15 +162,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {f}: {reason}")
             return 3
 
-        # Sync the harness's own working tree to the commit Devin actually pushed.
-        # Without this, validate_locally() below scores whatever was already
-        # checked out locally rather than Devin's real commit -- and the next
-        # iteration's base_sha would be wrong too. Force is safe here: this
-        # working tree is orchestration state, not somewhere a human edits
-        # concurrently.
-        subprocess.run(
-            ["git", "checkout", "-B", args.branch, remote_ref], cwd=REPO_ROOT, check=True
+        # Sync to the exact commit Devin pushed; the ancestry and allowlist
+        # checks above must both pass before the working branch can move.
+        switched = subprocess.run(
+            ["git", "checkout", "-B", args.branch, remote_ref], cwd=REPO_ROOT, check=False
         )
+        if switched.returncode != 0:
+            print(
+                "Could not switch to Devin's branch. Commit or stash local changes, "
+                "then rerun the iteration."
+            )
+            return 4
 
         history.append(
             f"iter {iteration}: {out.get('rationale', '(no rationale)')} "

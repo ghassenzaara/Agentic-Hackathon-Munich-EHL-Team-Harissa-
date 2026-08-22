@@ -4,11 +4,10 @@
 # on PyPI, so a pure uv/pyproject route can't cover it. pixi resolves conda-forge
 # and PyPI in ONE cross-platform lockfile, which is the property that matters
 # here -- the same pinned toolchain has to exist on this laptop (osx-arm64) and
-# on the Devin machine snapshot (linux-64, see DEVIN_SNAPSHOT_ID in .env.example).
+# on Devin's configured Linux platform.
 #
 # Every dependency below resolves from conda-forge, so there is no pip layer at
-# all. Supersedes src/requirements.txt + src/environment.yml, which are kept as
-# documentation of the snapshot shape.
+# all. It is the single environment definition for the optional FEA lane.
 #
 #   pixi install          # solve + materialise .pixi/ (commit pixi.lock)
 #   pixi run doctor       # prove the toolchain works end to end
@@ -20,7 +19,7 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
 [dependencies]
-# 3.12, not the 3.10 of src/environment.yml: conda-forge's `ocp 7.7.2` (the
+# Python 3.12 is required because conda-forge's `ocp 7.7.2` (the
 # OpenCASCADE binding cadquery 2.5.2 needs) has no cp310 build at all. The old
 # python=3.10 + cadquery==2.5.2 pairing only ever worked because pip pulled ocp
 # wheels instead. See the cadquery note below.
@@ -28,11 +27,11 @@ python = "3.12.*"
 
 # --- the verdict engine ---------------------------------------------------
 # The FEA solver. This is the one dependency that forced conda over pip, and
-# the reason src/fetch/install_calculix.sh existed. Provides the `ccx` binary.
+# the reason this lane uses pixi/conda-forge. Provides the `ccx` binary.
 calculix = "2.23.*"
 
 # --- geometry: the artifact the agent writes ------------------------------
-# DELIBERATE BUMP 2.5.2 -> 2.8.0, the one deviation from src/requirements.txt.
+# CadQuery 2.8.0 keeps CadQuery and gmsh on one compatible OpenCASCADE build.
 # Reason: on conda-forge, cadquery and gmsh SHARE OpenCASCADE (occt); pip's gmsh
 # wheel bundles its own copy and hides the clash. cadquery 2.5.2 pulls
 # ocp 7.7.2 -> occt 7.7.2, while gmsh 4.15.2 requires occt 7.9.3 -- unsolvable.
@@ -44,7 +43,7 @@ calculix = "2.23.*"
 cadquery = "2.8.0.*"
 
 # --- mesh work: clearance checks, decimation, cropping, watertightness ----
-# 5.0.0 exists. Held at 4.12.2 per src/requirements.txt -- bump deliberately.
+# 5.0.0 exists. Held at the version used by the runnable AutoImplants lane.
 trimesh = "4.12.2.*"
 
 # --- tet meshing for FEA, and format bridging ----------------------------

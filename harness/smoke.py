@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from .devin_client import DevinClient, DevinError
+from .devin_client import DEFAULT_ACU_LIMIT, DevinClient, DevinError
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -105,7 +105,12 @@ Constraints:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="harness.smoke", description=__doc__)
     ap.add_argument("--dry-run", action="store_true", help="print the prompt and exit")
-    ap.add_argument("--acu-limit", type=int, default=5, help="cost guardrail (default 5)")
+    ap.add_argument(
+        "--acu-limit",
+        type=int,
+        default=DEFAULT_ACU_LIMIT,
+        help=f"cost guardrail (default {DEFAULT_ACU_LIMIT})",
+    )
     ap.add_argument("--timeout", type=int, default=2400, help="seconds to wait (default 40 min)")
     ap.add_argument("--no-wait", action="store_true", help="create the session and return")
     args = ap.parse_args(argv)

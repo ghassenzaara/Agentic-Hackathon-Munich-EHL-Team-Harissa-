@@ -80,6 +80,22 @@ def check_range(base: str, head: str = "HEAD") -> tuple[bool, list[tuple[str, st
     return (not bad, bad)
 
 
+def is_ancestor(base: str, head: str) -> bool:
+    """Whether ``head`` contains ``base`` in its history."""
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base, head],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode not in (0, 1):
+        raise RuntimeError(
+            f"git merge-base --is-ancestor {base} {head} failed: {result.stderr.strip()}"
+        )
+    return result.returncode == 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="harness.guard", description="Verify Devin only touched the design surface."

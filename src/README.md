@@ -10,17 +10,13 @@ of them load-bearing.
 ```
 src/
 ├── README.md                   this file
-├── requirements.txt            superseded by ../pixi.toml; kept as reference
-├── environment.yml             superseded by ../pixi.toml; documents snapshot shape
-│
 ├── env/doctor.py               verify imports + ccx + data (`pixi run doctor`)
 ├── ssm/load_ssm.py             read the shape model from Python, sample anatomies
 │
 ├── fetch/
 │   ├── fetch_ssm_tibia.sh              primary data, md5-verified, idempotent
 │   ├── fetch_paed_ssm.sh               target population (ages 4–18); needs SimTK login
-│   ├── fetch_totalsegmentator_lite.sh  secondary; --with-images for the 22.6 GB
-│   └── install_calculix.sh             conda|brew — superseded by pixi, kept as fallback
+│   └── fetch_totalsegmentator_lite.sh  secondary; --with-images for the 22.6 GB
 │
 ├── refs/
 │   ├── DATA_NOTES.md           verified inventory + corrections to resources.md
@@ -33,8 +29,7 @@ src/
     └── _downloads/             the source archives, kept for re-extraction
 ```
 
-`data/` is deliberately gitignored (the repo's `.gitignore` already excludes
-`data/` and `*.stl`). The fetch scripts are the reproducible part; the 2 GB is
+`data/` is deliberately gitignored. The fetch scripts are the reproducible part; the 2 GB is
 not. Both scripts skip a download that is already present, so re-running is
 cheap.
 
@@ -77,10 +72,9 @@ export SIMTK_USER=... SIMTK_PASS=...      # or put them in .env
 pixi run fetch-paed
 ```
 
-CalculiX now comes from conda-forge as part of the locked environment, so
-`fetch/install_calculix.sh` is no longer needed on the pixi path. See
-[../pixi.toml](../pixi.toml) for why pixi replaced the pip+conda split, and for
-the one deliberate version bump (cadquery 2.5.2 → 2.8.0) it forced.
+CalculiX comes from conda-forge as part of the locked environment. See
+[../pixi.toml](../pixi.toml) for the complete toolchain and the CadQuery 2.8.0
+compatibility rationale.
 
 ## Why the SSM matters more than the brief assumes
 

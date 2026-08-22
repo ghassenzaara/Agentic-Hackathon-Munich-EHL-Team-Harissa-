@@ -105,8 +105,7 @@ Useful fast checks:
 
 ## Run the Devin path
 
-The client uses the current organization-scoped Devin v3 API and can still use
-legacy v1 when explicitly configured.
+The client uses the current organization-scoped Devin v3 API.
 
 1. Copy `.env.example` to `.env`.
 2. Add the `cog_...` service-user key and `org_...` organization ID.

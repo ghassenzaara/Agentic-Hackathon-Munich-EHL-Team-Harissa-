@@ -93,9 +93,8 @@ CASES = {c.name: c for c in (CANTILEVER, GAIT_AXIAL)}
 # known gap -- stated here rather than in a document nobody opens
 # ---------------------------------------------------------------------------
 #
-# BC SOFTENING IS NOT IMPLEMENTED. suggested_plan.md lists three mitigations for
-# the clamp singularity; two of them are live (near-BC exclusion and ROI peak
-# reporting, both in stress.py) and they are the two that actually stop the
+# BC SOFTENING IS NOT IMPLEMENTED. Two clamp-singularity mitigations are live:
+# near-BC exclusion and ROI peak reporting (both in stress.py). They stop the
 # agent chasing a phantom hotspot. The third -- replacing the rigid encastre
 # with grounded springs or a kinematic coupling -- needs SPRING1 elements
 # generated per constrained node, which is real work and buys accuracy near the

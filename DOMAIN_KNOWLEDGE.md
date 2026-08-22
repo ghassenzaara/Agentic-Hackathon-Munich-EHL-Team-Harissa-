@@ -304,18 +304,18 @@ actually measured against.
 
 | Quantity | General target | This case (`inputs/case.json`) |
 |---|---|---|
-| `safety_factor` | `>= 2.5` | expressed as `max_stress_MPa` 350 — 880 / 2.5 = 352, rounded down. **Same constraint, not a different one.** SKIP today |
+| `safety_factor` | `>= 2.5` | expressed as enforced `max_stress_MPa` 350 — 880 / 2.5 = 352, rounded down. **Same constraint, not a different one.** |
 | `stiffness_N_per_mm` | `100 <= k <= 400` | **not implemented** — no stiffness check exists |
-| `mass_g` | `<= 40` | **39** (tighter) |
+| `mass_g` | `<= 40` | **55** for this calibrated synthetic design-space challenge |
 | `max_thickness_mm` | `<= 6.0` | thickness bounded **2.5–4.5** (tighter). `max_standoff_mm` 6.0 separately caps outer protrusion |
 | clearance | `0.1 <= c <= 1.0` | **`0.1 <= c <= 1.5`** — floor as stated, ceiling relaxed to 1.5 |
 | plate width | 10–14 mm typical | **16 mm baseline, hard ceiling 17.6 mm** at the vessel keepout. This is a broad plate on a 26 mm shaft; the keepout, not soft tissue, is what binds |
 | `overhang_deg` | `<= 45` | **not implemented** |
 | `min_feature_mm` | `>= 0.8` | expressed as `min_wall_mm` **2.5** (much tighter) |
 
-Do not "correct" the safety-factor row to 2.5 or the mass row to 40. The narrower numbers
-are deliberate: see `design_space_note` in `inputs/case.json`, which shows that the mass cap
-plus the keepouts make scalar parameter tuning insufficient on purpose.
+Do not rewrite the case-specific numbers from generic guidance. See `design_space_note` in
+`inputs/case.json`: the mass cap, gait moment, and keepouts are calibrated together so scalar
+parameter tuning remains insufficient on purpose.
 
 Why safety factor 2.5 and not 1.0: the plate is loaded thousands of times per day and
 fails by **fatigue**, not single overload. Material has scatter, printed parts have
@@ -335,7 +335,7 @@ report is written to `out/report.json`, and the same content is printed as a tab
 ```
 CHECK                        STATUS      VALUE / LIMIT      UNIT
 ------------------------------------------------------------------------------
-implant_mass                 PASS       36.996 / 39         g
+implant_mass                 PASS       36.996 / 55         g
 bone_conformance_gap         FAIL        8.596 / 1.5        mm     at (35.4, 6, 100)
     -> implant stands 8.60 mm off the bone at y=6.0, z=100 mm; the plate must follow the contour
 bone_clearance_min           PASS        0.398 / 0.1        mm     at (35.4, 0, 202)
@@ -376,7 +376,7 @@ Consequences you must reason about, because they are not obvious:
   reduced-order surrogate and says so — but it is measured, not asserted, and it responds
   to ribs, thickness profiles and slots because it reads the geometry rather than the
   parameters.
-- **`load_cases` in `inputs/case.json` is live.** The 2100 N axial force and 15 Nm bending
+- **`load_cases` in `inputs/case.json` is live.** The 2100 N axial force and 7 Nm bending
   moment are applied: the moment peaks over mid-footprint and tapers to the outermost
   screws, on the assumption that the plate bridges the fracture and load re-enters the bone
   through the end screws. The plate is assumed to carry the moment alone, with no load

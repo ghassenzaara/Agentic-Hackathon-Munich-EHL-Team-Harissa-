@@ -17,7 +17,7 @@ Ask the organizers for all three on day one.
 
 Use **v3**. The v1 API (`/v1/sessions`) is marked deprecated in the docs in favour of
 v3 with service-user authentication. Legacy `apk_user_` / `apk_` keys only work on
-v1–v2 and don't support v3 features.
+v1–v2 and are not supported by this harness.
 
 - Base URL: `https://api.devin.ai/v3`
 - Auth header: `Authorization: Bearer cog_...`
