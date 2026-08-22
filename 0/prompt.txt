@@ -1,0 +1,104 @@
+# AutoImplants — Project Context Handoff
+Paste this at the start of a Claude Code session.
+---
+## What we're building
+**AutoImplants** — a hackathon MVP for the Cognition/Devin track at the Munich Agentic Hackathon (TUM.ai, Aug 2026). 4 people, ~20 hours, submission deadline Sunday 12:00, then a 5-min pitch + 3-min jury Q&A.
+**The challenge brief (from Cognition):** pick a domain where the output can be expressed as code, build a system that programmatically triggers Devin sessions, gives them a way to check their own work, and produces real artifacts without a human in the loop. Judging weights novel Devin use cases and concrete real-world clients.
+**Our answer:** Devin as an autonomous biomedical/mechanical engineer. Given a bone mesh and engineering constraints, Devin edits a parametric CAD generator, our validators score the output, Devin reads the structured failures, fixes the generator, and repeats until the design passes.
+**One-liner:** Devin autonomously redesigns a patient-specific orthopedic implant through a closed generate → validate → fix loop, starting from the generic off-the-shelf part that fails on this patient's anatomy, converging to a passing design with a git-committed engineering rationale at every step.
+---
+## Scope boundary (stated once in the pitch, then dropped)
+- Segmentation, surgical planning, landmark ID are **precomputed inputs**, not part of the demo
+- Physics is a **reduced-order analytical surrogate**, NOT clinical FEA
+- One bone, one plate, one load case. No fatigue, no multi-material, no contact mechanics
+- Not a clinical device. Synthetic/public anatomy only. No FDA/ISO/ASTM claims
+---
+## Architecture
+```
+generate (CadQuery) → export STL/STEP → geometry validator → [pass?]
+                                              ↓ fail
+                                    surrogate stress validator → [pass?]
+                                              ↓ fail
+                                    structured Report (JSON)
+                                              ↓
+                                    Devin session: read Report, edit generator.py
+                                              ↓
+                                    git commit with engineering rationale
+                                              ↓
+                                    (repeat, capped at N iterations)
+```
+### Frozen contracts (locked before any parallel work)
+```python
+# generator.py
+def build_implant(params: dict) -> cadquery.Workplane
+# validators/*.py
+def validate(implant_path: str, case: dict) -> Report
+```
+```json
+{
+  "passed": false,
+  "checks": [
+    {"id": "stress_hole_3", "status": "FAIL", "value": 412,
+     "limit": 350, "unit": "MPa", "location": [x, y, z],
+     "message": "Stress concentration at screw hole 3 exceeds limit"}
+  ]
+}
+```
+### Inputs (precomputed, committed before hacking)
+```
+bone.stl                 — synthetic/public femur (Zenodo synthetic femurs, Cults3D, or TotalSegmentator on a public CT)
+case.json                — envelope, thickness bounds, load case, pass thresholds
+screw_positions.json     — fixed screw locations the implant must accommodate
+keepout_zones.json       — regions to avoid
+baseline_plate.py        — CadQuery script for a GENERIC straight off-the-shelf plate (the seed design)
+```
+Note: screw positions / load cases / thresholds do **not** exist as open data — they're proprietary surgical-planning IP. We fabricate them as clearly-labeled synthetic constraints, grounded in published bone-plate design literature (typical femoral plate thickness 2.5–4.5mm; axial + bending load cases from orthopedic biomechanics papers). This is explicitly in scope because surgical planning is a declared pre-solved input.
+### Devin-editable parameters
+thickness (spatially variable), width/profile curve, fillet radii, hole diameter, hole→slot conversion, **rib placement**, bend/contour spline fitted to the bone surface.
+`ribs: list` and `thickness_profile: list` must exist in the params signature from hour one even if unused — they're how Devin changes topology later.
+### Locked (system-controlled)
+screw positions, keepout zones, max envelope, material properties.
+### Validators
+- **Geometry (fast, deterministic, runs first):** within envelope, no illegal bone collision, min wall thickness, all screw positions preserved + trajectories unobstructed, keepouts respected, manifold watertight solid
+- **Surrogate stress:** beam bending along cross-sections, stress concentration factors (Kt) at holes, screw pull-out estimate. Per-location numeric thresholded output. Runs in ~50ms, never crashes.
+- **NOT in the loop:** real FEA. Optional single CalculiX run on the final converged design only, for one slide.
+---
+## The critical design decision
+**Devin must edit the generator code, not just tune parameters.** The jury will ask *"why not scipy.optimize?"* — this is the question that decides the prize. The answer must be built into the product: at least one iteration in the recorded run has to show Devin **adding geometry** (a rib, a hole→slot conversion, a variable-thickness profile) rather than nudging a float. Parameter tuning is an optimizer. Code/topology editing is an engineer.
+Supporting differentiators: Devin writes its rationale into each commit message (→ a Design History File, a legally-required medical-device deliverable produced as a side effect), and can optionally extend the validator suite itself.
+---
+## Roles
+| | Owner | Owns |
+|---|---|---|
+| A | CAD | generator.py, CadQuery, bone STL, exports, baseline plate |
+| B | Validators | geometry checks, surrogate stress, Report emission |
+| C | Harness | Devin API, loop orchestration, git commits, prompt engineering |
+| D | Demo | viewer, renders, deck, pitch — **and integration owner** |
+---
+## Timeline + checkpoints
+- **H+0–0:45** — all four: freeze contracts, repo up, bone STL committed (15 min max), D pushes a stub validator returning a fake failing Report so C and D are unblocked immediately
+- **H+0:45–4** — parallel build, no integration. C must confirm a real Devin commit **in the first hour** — highest-risk unknown.
+- **🚦 H+4 GO/NO-GO** — plate exports, real Report from real geometry, Devin made a commit. If Devin API is blocked, everyone drops everything and helps C. No Devin = no submission.
+- **H+4–7** — first integration, all four on one screen. One full cycle. Budget the full 3h; it breaks in stupid ways (paths, env, CadQuery in Devin's container, git auth).
+- **🚦 H+7 GO/NO-GO** — one autonomous Devin fix that changes the validator result. If not: **cut the stress model, run on geometry checks only.** Working loop on simple checks > broken loop on impressive checks.
+- **H+7–11** — tune for convergence (hand-fix the design yourself; if a human can't solve it in ~4 edits, neither can Devin — adjust thresholds). Viewer. Deck v1. **Sleep rotation starts: 2 down 23:00–03:00, 2 down 03:00–07:00.**
+- **H+11–14** — **THE RUN.** Full convergence, capture every commit/Report/export/render. Freeze and archive it. Nobody touches main.
+- **H+14–17** — demo assembly. Viewer with iteration scrubber + commit-rationale panel beside the triggering validator numbers. Stretch: printed part, one CalculiX run, held-out bone kicked off. **Anything not working by H+17 gets cut, not fixed.**
+- **H+17–19** — rehearse 4×, timed to 5:00. Q&A prep.
+- **H+19–20** — submit by 11:30, not 12:00.
+### Cut list, in order
+1. Held-out bone → 2. Parallel Devin sessions → 3. Real FEA → 4. Interactive viewer (fall back to pre-rendered video) → 5. Surrogate stress → 6. Multiple iterations → one well-told autonomous fix.
+Losing 1–4 is survivable. Losing #6 means we have nothing.
+---
+## Demo + pitch
+Pre-recorded/cached — a Devin loop takes 30–90 min, it cannot run live in 5 minutes. **Be explicit that it's cached when asked; do not fake liveness.** Cognition engineers are the jury and the 3-min Q&A is where fabrication dies. "Cached, here's the run log, here's the git history" reads as competence.
+**Pitch shape (5:00):** current workflow takes 2 weeks + a CAD engineer (20s) → the off-the-shelf plate failing on this patient (30s) → Devin's loop, scrub the slider, iteration 3 adds a rib, here's the commit message explaining why (2min) → converged, here's the part, here's the design history file (1min) → generalizes to any physics-validated hardware; Brainlab is 20 minutes from this room (1min) → limits + roadmap, one slide (20s).
+**Clients:** Brainlab (Munich), Kumovis (Munich), Ottobock, Implantcast, Materialise, Stryker patient-specific, Siemens Healthineers.
+**Q&A answers to have ready:** why not an optimizer (→ topology commit); live or cached (→ cached, log); is the FEA real (→ surrogate in-loop, backend-swappable, one real run on final); how many iterations changed topology vs. params (→ know the number); unseen bone (→ held-out run); clinically usable (→ no, and here's what it'd take).
+---
+## How to work with me in Claude Code
+Priorities: get a working end-to-end loop before making any single piece good. Prefer boring robust choices (pyvista offline renders over live three.js; analytical stress over meshed FEA). Flag it loudly if something I suggest is a >1h time sink for <1h of pitch value. Hold me to the cut list when we're behind.
+
+
+
+this is a description of what were building for the hackathon  understand it well and ask questions if u need to. we need to next set up the first 45mn of setup
