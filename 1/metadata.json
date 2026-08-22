@@ -1,0 +1,172 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0NVSA190E9F4FYSDJCS8BGW",
+  "session_id": "754977d4-36b2-42d8-9026-37f6ceb4ee5e",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-22T23:09:44.2563539Z",
+  "branch": "finalize",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    ".gitignore",
+    "README.md",
+    "autoimplants/run.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5",
+  "turn_id": "84f078cb30c2",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 428,
+    "cache_creation_tokens": 798060,
+    "cache_read_tokens": 54225029,
+    "output_tokens": 259972,
+    "api_call_count": 215
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-caveman-2026-08-22T20:15:51.450824Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "caveman"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "78597073331d",
+      "timestamp": "2026-08-22T20:15:51.450824Z",
+      "native": {
+        "command": "/caveman"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/caveman",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "prompt-skill-claude-code-plan-2026-08-22T20:17:05.8657431Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "plan"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "68bb95dcf8ca",
+      "timestamp": "2026-08-22T20:17:05.8657431Z",
+      "native": {
+        "command": "/plan"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/plan",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "prompt-skill-claude-code-goal-2026-08-22T20:35:50.0595282Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "goal"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "6c1177a5b196",
+      "timestamp": "2026-08-22T20:35:50.0595282Z",
+      "native": {
+        "command": "/goal"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/goal",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "prompt-skill-claude-code-plan-2026-08-22T21:16:03.2394572Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "plan"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "247693c6a0cb",
+      "timestamp": "2026-08-22T21:16:03.2394572Z",
+      "native": {
+        "command": "/plan"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/plan",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01Dr9snMF61KsbV4npUxnZDr",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "artifact-design"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "84f078cb30c2",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 1112,
+        "end": 1113,
+        "entry_ids": [
+          "f46cee94-6351-4f33-8264-14dadfd60cc8"
+        ],
+        "tool_use_id": "toolu_01Dr9snMF61KsbV4npUxnZDr"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Dr9snMF61KsbV4npUxnZDr"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: artifact-design",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 17
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-22T23:09:44.0783484Z",
+    "agent_lines": 0,
+    "agent_removed": 157,
+    "human_added": 420,
+    "human_modified": 339,
+    "human_removed": 0,
+    "total_committed": 757,
+    "total_lines_changed": 987,
+    "agent_percentage": 15.906788247213779,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
