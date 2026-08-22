@@ -32,6 +32,40 @@ Source of truth: the track slide (`artifacts/image.png`).
 4. **Verifier placement is undecided.** "Gives them a way to check their own work" is a hint about *architecture*, not just about having a metric. The verifier should be a command Devin can invoke inside its own session (a test suite: `verify --case X` → structured JSON verdict), *and* be re-run by the layer as an independent gate before an artifact is accepted. Self-check and gate are two different runs of the same code. The brief doesn't distinguish them.
 5. **No environment story.** gmsh, CalculiX, trimesh, CadQuery must exist in the Devin machine snapshot, or every session burns its first ten minutes on `apt install`. This is a real hackathon-day failure mode and belongs next to the other risks.
 
+## Parallelism is the headline, not a footnote
+
+The brief treats concurrency as an implementation detail behind a throughput number. It is actually the strongest argument in the deck, and this domain supports it better than most. Seven points, roughly in order of how much they buy:
+
+**The output is a Pareto front, not a winner.** The constraints are two-sided by design — strong but not too stiff, light but not too thin. There is no single optimum, there is a trade-off surface. A serial human designer produces *one point* on that surface and calls it the answer, because producing a second one costs another three days. The layer returns the frontier and lets the surgeon choose the trade-off. That is a **better product, not merely a faster one** — and it exists only because of parallelism. This is the best sentence available to the team and the brief currently doesn't contain it.
+
+**Parallelism is what a copilot structurally cannot do.** An engineer cannot drive twenty CAD sessions at once — not slowly, not ever. This is not "the same work, faster," it is a mode of working unavailable to a human-in-the-loop tool at any speed. Put this directly beside the existing autonomy rebuttal; it is the same argument and it is the stronger half.
+
+**The candidates are genuinely independent.** A candidate is a point in a parameter space: plate path, cross-section profile, thickness taper, screw count, screw placement. No shared state, no merge, no coordination between sessions. Embarrassingly parallel in the strict sense — worth saying in those words, because it tells a technical judge the fan-out is real rather than decorative.
+
+**The numeric verdict makes parallel results self-ranking.** Safety factor, stiffness, mass, and clearance are numbers. Twenty candidates return and the layer sorts them with no human comparing CAD models side by side. Parallelism only pays if you can *choose automatically* at the end — here you can, and that closes the loop between the verdict engine and the fan-out. Most teams miss this half.
+
+**A Devin session is a whole machine, not a thread.** This answers the judge's question "why Devin and not a for-loop around an LLM call?" Each candidate must write code, mesh geometry, run a CalculiX solve, read results, and revise — it needs its own filesystem and toolchain, not a chat turn. Devin's unit of concurrency is exactly that unit. Twenty parallel sessions are twenty engineers at twenty workstations.
+
+**Failure isolation buys demo robustness.** A session that hangs gmsh, emits a non-watertight solid, or diverges costs one candidate out of N, not the run. In a serial loop, one bad geometry ends the demo. Saying this converts the brief's own *"the geometry pipeline is the likely point of failure"* risk into a reason the architecture is right.
+
+**Two axes to fan out over, and the demo should show both.** Anatomies (five unseen tibiae) × design strategies (K parameterisations each) is a live matrix filling in on screen. It reads from the back of the room in a way a single progressing session never does.
+
+### What the orchestrator actually has to do
+
+Scheduling *is* the visible work of the layer, so name it concretely:
+
+- **Concurrency cap** — a bounded worker pool over the candidate queue, sized by ACU budget rather than ambition.
+- **Per-session budget** — `max_acu_limit` at create time, so no runaway candidate eats the event's credits.
+- **Uniform boot** — one `snapshot_id` for every session, so all N start from an identical toolchain and their results are actually comparable.
+- **Machine-readable verdicts** — `structured_output_schema` so results merge into a leaderboard without parsing prose.
+- **Grouping** — `tags` per case and per candidate; this is what the fan-out board queries.
+- **Escalation policy** — what happens to a candidate that fails repeatedly: kill it, or respawn with a relaxed seed or a different parameterisation. A scheduler that reallocates budget from dead candidates to live ones is a real orchestration story, not a loop.
+- **Front assembly** — collect survivors, drop near-identical designs, rank, publish the Pareto set.
+
+Those field names are verified against the Devin v3 API — see [devin-api-setup.md](devin-api-setup.md).
+
+**One caution: parallelism multiplies cost, so state the number.** N candidates × 40 iterations is a real ACU bill. A judge who asks "what did this run cost?" should get an answer, and a per-session cap is the evidence you thought about it before they asked.
+
 ## Proposed edits to `devin-challenge-brief.md`
 
 Keep every existing section — the domain reasoning, the constraint table, the scope decisions, and the risks are all doing work. The changes are additive plus two rewrites.
@@ -49,12 +83,13 @@ The section the challenge is actually asking for. Cover, briefly:
 - **Trigger** — what event creates a session, and the API call that does it.
 - **Session seeding** — what goes into the initial prompt: mesh URI, constraint spec, verifier contract, repo with the verifier pre-installed.
 - **Feedback channel** — how a verdict re-enters a live session (a message to the session vs. Devin re-invoking the verifier itself; state which and why).
-- **Fan-out** — N sessions over a parameter sweep, each an independent candidate; leaderboard ranks survivors by mass and stiffness margin.
+- **Fan-out** — *lead with this.* N concurrent sessions over anatomies × design strategies, each an independent candidate; the survivors form a Pareto front ranked by mass and stiffness margin, not a single winner. See the parallelism section above for the arguments to compress into this bullet.
+- **Scheduling** — concurrency cap, per-session ACU budget, escalation and respawn for repeatedly failing candidates.
 - **Termination policy** — pass, iteration cap, wall-clock cap, hard-fail.
 - **Artifact store** — where STL / G-code / report / design-history JSON land, keyed by case and candidate.
-- **Environment** — the machine snapshot with gmsh, CalculiX, CadQuery, trimesh pre-baked.
+- **Environment** — one machine snapshot with gmsh, CalculiX, CadQuery, trimesh pre-baked, shared by every session.
 
-A one-line ASCII or Mermaid diagram of `intake → orchestrator → N Devin sessions → verifier gate → artifact store` would carry this section on a slide better than prose.
+A diagram would carry this section on a slide better than prose — and it should show the width, not just the sequence: `intake → orchestrator → { N Devin sessions in parallel } → verifier gate → Pareto front → artifact store`. Drawing the fan as a fan is half the argument.
 
 ### C. Add a **Devin API surface** subsection or appendix
 
@@ -74,10 +109,10 @@ The copilot rebuttal is good but currently rhetorical. Make it checkable: state 
 Not in the brief at all, and it is what the score is actually assigned to. Suggested beat sheet:
 
 1. Drop five unseen anatomies into intake. Nothing else is touched.
-2. Sessions spawn live; the fan-out board fills in.
-3. One session's transcript on screen: fail → revise → pass, with the stiffness ceiling visibly rejecting a brick.
-4. Artifacts open: STL, sliced G-code, ASTM F382 report.
-5. Close on the counter: engineer-days per case → candidates per hour.
+2. **The board explodes** — N sessions spawn at once, the anatomy × strategy matrix fills in live. This is the money shot; give it screen time and let the count climb while you talk.
+3. Zoom into one cell: that session's transcript, fail → revise → pass, with the stiffness ceiling visibly rejecting a brick. Then zoom back out to show the other nineteen still running.
+4. Artifacts open: STL, sliced G-code, ASTM F382 report — and the **Pareto front**, several valid designs trading mass against stiffness, with the line "a human picks the trade-off, not the geometry."
+5. Close on the counter: one design in three engineer-days → twenty validated candidates in an hour, and the ACU cost of having done it.
 
 ### G. Optional trims
 
