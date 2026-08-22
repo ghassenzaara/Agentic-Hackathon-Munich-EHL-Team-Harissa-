@@ -1,0 +1,503 @@
+# IMPLEMENTATION PLAN — Autonomous patient-specific bone plate design
+
+For Claude Code. Read this file fully before writing anything.
+
+## What we are building
+
+A system that takes a bone (from a CT scan or a pre-segmented mesh) plus a clinical
+prescription, triggers Devin sessions programmatically, and produces a structurally
+validated, printable fixation plate — with no human in the design loop.
+
+**The domain knowledge lives in `DOMAIN_KNOWLEDGE.md`** (already written, at the repo
+root). It is the authoritative reference for what a bone plate is, why the geometry is
+what it is, which failure modes matter, what the verifier checks and why, the coordinate
+frame, the load case, and the iteration protocol. Every section reference below of the
+form `DK §n` points into that file. **Do not restate its contents in code comments and do
+not contradict it.** If something here and `DOMAIN_KNOWLEDGE.md` disagree, `DOMAIN_KNOWLEDGE.md`
+wins on domain facts and this file wins on build order.
+
+`DOMAIN_KNOWLEDGE.md` is shipped to Devin. This file is not.
+
+## Repository layout — two repos, this separation is load-bearing
+
+```
+repo A: plate-designer          (Devin CAN read and write)
+  DOMAIN_KNOWLEDGE.md
+  AGENTS.md                     -> points at DOMAIN_KNOWLEDGE.md
+  generator/
+    archetype.py                -> generate_plate()
+    sampling.py                 -> surface sampling, normals, spline path
+    holes.py                    -> hole placement per mode (DK §2)
+    tagging.py                  -> face -> parameter tag map (DK §9)
+    optimizer.py                -> local CMA-ES over continuous params (DK §8)
+  client/
+    verifier_client.py          -> POST /verify, retries, no fallbacks
+  data/
+    <patient_id>_bone.stl
+    <patient_id>_prescription.json
+  out/
+    <patient_id>/plate.step, iterations.json
+
+repo B: plate-verifier          (Devin CANNOT read — private, separate token)
+  service.py                    -> FastAPI, single route
+  fea/harness.py                -> gmsh + CalculiX + .frd parse + von Mises
+  fea/load_cases.py             -> loads and BCs, server-side only
+  checks/verdict.py             -> all checks (DK §6)
+  config/thresholds.json        -> never leaves the server
+  audit/                        -> append-only audit log
+  bench/cantilever.py           -> regression benchmark
+
+repo C: orchestrator            (local only, holds the Devin API key)
+  run_batch.py                  -> level 1 fan-out
+  devin_client.py               -> session create/poll
+  review/                       -> human validation gate for human cases
+  report/                       -> report generation, convergence plots
+```
+
+Rationale in `DOMAIN_KNOWLEDGE.md` header and DK §6: Devin submits geometry only. Loads,
+boundary conditions, material and thresholds are server-side and unreachable.
+
+---
+
+# PHASE 0 — Environment and contracts (do first, ~1 h)
+
+## Task 0.1 — Toolchain smoke test
+Create a single script that exercises every tool end to end and prints OK or fails loudly:
+build a 10 mm cube in CadQuery, mesh it in gmsh, solve in `ccx`, load with meshio, render
+in pyvista, slice with the slicer CLI.
+
+Dependencies: `cadquery`, `gmsh`, `meshio`, `trimesh`, `pyvista`, `numpy`, `scipy`,
+`fastapi`, `uvicorn`, CalculiX (`ccx`), PrusaSlicer or CuraEngine headless.
+
+**Done when:** passes on every machine and inside a Devin session container.
+
+## Task 0.2 — Freeze the two interfaces
+Write these before any implementation so tasks can proceed in parallel against stubs.
+
+`contracts/verifier_api.md` — request and response exactly as in DK §6 (Verifier API).
+Fields: `step_file`, `prescription`, `tags` in; `passed`, `checks[]`, `mesh_convergence`,
+`render_urls`, `solve_time_s` out. Each check is
+`{name, passed, measured, limit, where:{xyz, tag}}`.
+
+`contracts/generator_api.md`:
+```python
+generate_plate(bone_mesh: trimesh.Trimesh,
+               params: dict,
+               prescription: dict) -> (step_path: str, tags: dict)
+```
+
+**Done when:** both files exist and a stub verifier returns schema-valid fake responses.
+
+## Task 0.3 — Prescription schema
+Implement and validate the JSON in DK §11, including field semantics and the species
+scaling rules. Add a validator that rejects clinically invalid combinations per DK §2
+(bridging mode on a simple transverse fracture is a **design error**, not something to
+tune around) with a clear error message.
+
+---
+
+# PHASE 1 — The verifier (repo B, build before the generator)
+
+Build order rule: if the verifier works and the CAD is crude, we still have a loop to
+demo. Reverse it and we have geometry that nothing judges.
+
+## Task 1.1 — FEA harness
+`fea/harness.py` implementing `run_fea(step_path, load_case) -> dict`.
+
+- gmsh: second-order tets (C3D10), ~1 mm target, refined near holes. Linear tets are too
+  stiff in bending and underpredict stress exactly at holes — do not use them.
+- meshio: convert to Abaqus `.inp`.
+- Material and units per DK §6: Ti-6Al-4V, `E=113800 MPa`, `nu=0.342`, yield `880 MPa`,
+  density `4.43e-3 g/mm^3`, units N/mm/MPa throughout.
+- Load case per DK §1: axial compression along +Z, magnitude
+  `patient_weight * gait_factor` (default 3.0), distal end fixed, screws as constraints
+  at hole surfaces.
+- Solve with `ccx`, parse the `.frd` stress block, compute von Mises in numpy from the
+  six components. Do not trust a solver-provided scalar.
+
+Return `peak_von_mises`, `safety_factor`, `stiffness`, `mass`, `hotspot_xyz`,
+`hotspot_tag`, `mesh_convergence`, `solve_time`.
+
+**Target: under 30 s per solve.** If slower, crop the bone harder and decimate more.
+Iteration count is the whole demo.
+
+## Task 1.2 — Boundary-condition artifact handling (CRITICAL — read DK §7)
+
+Our own cantilever benchmark showed the global peak von Mises converging cleanly
+(238.9 → 240.7 → 244.4 MPa against an analytical 240) while stress at the clamped wall
+**diverged** (275.6 → 294.9 → 329.0 MPa) under mesh refinement. That is a singularity at
+a rigid constraint. It never converges.
+
+The same artifact will appear at the constrained screw holes and will send Devin chasing
+a hotspot that does not exist. Implement all three mitigations:
+
+1. Exclude elements within 1–2 element lengths of any constrained node when locating the
+   hotspot.
+2. Soften the BC — elastic foundation springs or kinematic coupling, not rigid encastre.
+3. Report the region-of-interest peak, not the global peak.
+
+**DK §7 already tells Devin the verifier does this. Make it true.**
+
+## Task 1.3 — Cantilever regression benchmark
+`bench/cantilever.py`: 100 × 10 × 5 mm beam, 100 N tip load, fixed at x=0.
+Analytical: `I = 104.17 mm^4`, `sigma = 240 MPa`, `delta = 2.812 mm`.
+Assert within 10% on stress and 5% on deflection. Run it in CI and before every demo.
+
+Also assert unit consistency and mesh convergence (solve at 4 / 2 / 1 mm and confirm the
+peak stabilises).
+
+## Task 1.4 — Verdict engine
+`checks/verdict.py`. Every check returns `{passed, measured, limit, where}` — never a
+bare boolean. Implement every row of the DK §6 table with the numeric thresholds given
+there:
+
+safety_factor ≥ 2.5 · stiffness 100–400 N/mm (band, **both bounds binding**) ·
+mass ≤ 40 g · max_thickness ≤ 6.0 mm · clearance 0.1–1.0 mm · no bone intersection ·
+screw trajectory through cortex with adequate purchase and no wrong-side exit ·
+printability overhang ≤ 45°, min feature ≥ 0.8 mm.
+
+The stiffness **upper** bound and the mass budget are the anti-gaming constraints
+(DK §5 — stress shielding). Without them the fastest path to a passing safety factor is a
+solid brick. Do not weaken them.
+
+Geometric checks use `trimesh`: signed distance for intersection and clearance, ray
+casting for screw trajectories.
+
+**Test with three hand-made cases:** an obviously too-thin plate (must fail structural),
+a solid brick (must fail mass AND stiffness), a plate sunk 2 mm into bone (must fail
+intersection). If the brick passes, the loop is gameable — fix it now, not at hour 30.
+
+## Task 1.5 — The service and its isolation
+`service.py`: FastAPI, exactly one route `POST /verify`, bearer-token auth.
+
+- Thresholds, loads, BCs and material read from `config/thresholds.json` on the server.
+  **Never** accepted from the request body.
+- The server writes the `.inp` deck itself. Devin submits geometry only.
+- Append to `audit/audit.jsonl` on every call: timestamp, `sha256` of the submitted STEP,
+  patient id, full check results, solve time.
+- Rate limit: 30 requests per patient.
+
+Deploy: Docker on the host PC, exposed via `cloudflared tunnel --url http://localhost:8000`.
+Disable host sleep and screen lock.
+
+**Task 1.6 — Isolation tests, run these before anything else depends on the service:**
+- Bad token returns 401. If it does not, there is no isolation and everything downstream
+  is theatre.
+- Cantilever through the HTTP endpoint returns the same 244.4 MPa / 2.7935 mm as locally.
+- Devin's GitHub token cannot read repo B. Verify, do not assume.
+- A request attempting to override material or load is ignored, not honoured.
+
+---
+
+# PHASE 2 — Data pipeline (repo A, parallel with Phase 1)
+
+## Task 2.1 — Mesh source
+Primary batch source: VSDFullBodyBoneModels, 30 subjects, lower-extremity bone meshes as
+MATLAB MAT files. Clone recursively. Load with `scipy.io.loadmat`; if v7.3 it is HDF5, so
+fall back to `h5py`. **Check which version in the first ten minutes.**
+
+Export tibia (and femur) per subject to STL.
+
+## Task 2.2 — CT path (for the live demo)
+DICOM → threshold at 200 HU lower bound / volume max upper → `skimage.measure.marching_cubes`.
+Crop the region of interest **below the joint line first** — thresholding fuses tibia to
+femur across the thin joint gap, and cropping removes the need for manual joint
+separation entirely.
+
+Optional: TotalSegmentator instead, if we want the neural-segmentation line in the pitch.
+
+## Task 2.3 — Mesh conditioning and the quality gate
+Taubin smoothing (volume-preserving), decimate to ~20k faces, `trimesh.repair.fill_holes`.
+
+**Quality gate — all must pass or the case is rejected before Devin sees it:**
+watertight · single connected component · volume within plausible physiological range ·
+principal-axis length plausible.
+
+This gate closes the hole in the autonomy claim: a bad mask otherwise produces a
+well-validated plate for the wrong surface, and every downstream check passes.
+
+## Task 2.4 — Anatomical frame (implements DK §1 "Coordinate frame")
+PCA over shaft vertices gives the long axis → Z, positive distal. Origin at the proximal
+end of the cropped segment. Two landmarks fix rotation about Z.
+
+Every prescription position (`fracture_level`, `approach`) is interpreted in this frame.
+Ground truth is available: the dataset ships manually selected landmarks from five raters
+— check automatic detection against them.
+
+**If a mesh reaching the generator is not in this frame, it must fail loudly, not be
+guessed at** (DK §1 says Devin should stop and log in that case).
+
+## Task 2.5 — Crop and decimate for FEA
+Cylinder around the plated segment only. Drops DOF by an order of magnitude, which is
+what makes 15 iterations feasible inside a demo.
+
+## Task 2.6 — Segmentation validation slide
+Run our CT pipeline on a subject whose expert mesh we already have; compare surfaces with
+`trimesh.proximity`. Produce a surface-distance histogram against the published 0.4 ±
+0.2 mm benchmark. This is the strongest credibility artifact we have.
+
+---
+
+# PHASE 3 — Generator (repo A)
+
+## Task 3.1 — Archetype v1
+Implement `generate_plate()` exactly as structured in DK §3: sample surface points →
+offset outward by `thickness/2 + clearance` along normals → spline path → sweep
+cross-section → drill holes along local normals → fillet.
+
+Seed parameters from the DK §4 table.
+
+**Hard rule (DK §9): never boolean the plate against the bone mesh.** OCCT fails on
+20k-triangle solids with `BRep_API: command not done` and no diagnostic. Clearance is
+checked numerically in trimesh, never enforced as a CAD operation.
+
+Export STEP, not STL.
+
+## Task 3.2 — Mode-aware hole placement
+Implement DK §2: `compression` (eccentric holes away from the fracture, slight path
+overbend), `neutralization` (neutral, symmetric), `bridging` (screws only in outer
+segments, none within ~20 mm of the fracture level), `antiglide` (placement relative to
+fracture level).
+
+Also implement **working length** as an explicit, controllable quantity (DK §5): the span
+between the innermost screws either side of the fracture. It is the best stiffness lever
+and Devin is told to reach for it before thickness.
+
+## Task 3.3 — Geometry tagging (DK §9)
+When a face is created, record which parameter produced it. Return `tags` alongside the
+STEP so the verifier can map a hotspot to `fillet_radius_hole_3` instead of a bare
+coordinate. This is what converts an FEA result into an actionable edit.
+
+## Task 3.4 — Structural extensibility (this determines whether we have a project)
+The generator must be written so **structural** changes are possible, not just numeric
+ones: add a rib, taper the section along its length, split the head into two screw
+columns, reroute the path, change the hole pattern.
+
+If the generator is a fixed function of twelve floats, Devin has nothing to do that
+`scipy.optimize` could not do better — and we have no answer to the hardest question we
+will be asked. Provide clear extension points and document them at the top of
+`archetype.py`.
+
+## Task 3.5 — Local optimizer
+`optimizer.py`: CMA-ES or `scipy.optimize` over **continuous parameters only** —
+thickness taper, fillet radii, width profile. Objective: minimise mass subject to all
+constraints. 100–200 evaluations, under two minutes, runs on Devin's machine.
+
+Division of labour per DK §8: Devin decides topology, the optimizer decides coefficients.
+This is what drops Devin turns from 40 to ~5 and answers the cost objection.
+
+## Task 3.6 — Verifier client
+`verifier_client.py`: POST with bearer token from `$VERIFY_TOKEN`, exponential backoff on
+5xx, surface 4xx immediately.
+
+**No fallbacks. No caching of results. No mock mode.** Per the DK integrity rules: a
+failed solve is data; a fabricated pass is a corrupted run. If the verifier is
+unreachable, raise.
+
+---
+
+# PHASE 4 — Devin orchestration (repo C)
+
+## Task 4.1 — Devin client
+`devin_client.py`. Check the key prefix first: `cog_` keys use
+`POST /v3/organizations/{org_id}/sessions`; legacy keys use `POST /v1/sessions`. Confirm
+which applies before building on it, and test with one trivial session before wiring the
+real loop.
+
+Session creation carries:
+- `prompt` — thin, see 4.2
+- `structured_output_schema` — `converged`, `iterations`, `final_params`,
+  `final_metrics`, `step_sha256`, `structural_edits[]`, `failure_reason`
+- `session_secrets` — `VERIFY_TOKEN` and (level 2 only) `DEVIN_CHILD_KEY`, both
+  `sensitive: true`
+- `max_acu_limit` — hard compute cap
+- `idempotent: true`, `tags`, `title`
+
+Poll `GET` until `status_enum` is `blocked` or `stopped`.
+
+**`blocked` means Devin stopped to ask a human. Treat it as a FAILED run — log it, do not
+answer it.** The headline autonomy stat is "N of 30 completed with zero blocked
+sessions."
+
+## Task 4.2 — Prompt
+Keep it thin. Domain knowledge lives in the repo, not the prompt:
+
+```
+Repo: plate-designer. Read DOMAIN_KNOWLEDGE.md fully before doing anything.
+Patient: {patient_id}. Mesh: data/{patient_id}_bone.stl
+Prescription: data/{patient_id}_prescription.json
+Verifier: {VERIFIER_URL}, bearer token in $VERIFY_TOKEN.
+Design a plate passing every check. Iterate to convergence or the cap in DK §8.
+Do not ask questions. Emit structured output.
+```
+
+Ask the Cognition mentors whether `DOMAIN_KNOWLEDGE.md` is better registered as a
+Knowledge entry (`knowledge_ids`) or a Playbook than as a repo file.
+
+## Task 4.3 — LEVEL 1: patient fan-out
+`run_batch.py` launches one session per patient concurrently across all 30 subjects.
+Bounded concurrency (start at 5), per-session wall-clock timeout, resumable, writes a
+run manifest.
+
+## Task 4.4 — LEVEL 2: strategy fan-out (the multi-agent showcase)
+Triggered **only on a stuck patient**, never by default — cost control.
+
+Lead session instructions:
+```
+If three consecutive iterations fail on the same check, stop tuning.
+Identify three DISTINCT structural strategies (e.g. add a rib / taper the
+section / reroute the path). Spawn one child session per strategy using
+$DEVIN_CHILD_KEY, each with max_acu_limit 8, the same structured_output_schema,
+and a prompt naming its one strategy and forbidding the other two.
+Poll all three with an absolute wall-clock timeout; proceed with whatever
+finished. Take the passing design with the lowest mass.
+Log ALL THREE outcomes including the losers.
+```
+
+`DEVIN_CHILD_KEY` must be a **separate service user scoped to session creation only** —
+never the orchestrator key. Check whether v3's `child_playbook_id` is the intended
+mechanism before rolling raw API calls from the shell.
+
+Logging the losing strategies is a deliverable: "three hypotheses tried in parallel, one
+won, here is why" is a stronger slide than a single convergence curve.
+
+**Level 3 (role-specialist agents) is explicitly out of scope.** The roles would have no
+distinct tool access and no distinct verdict. If asked, we say we considered and rejected
+it.
+
+## Task 4.5 — Audit reconciliation
+For every returned `step_sha256`, confirm it appears in the verifier's `audit.jsonl`. Any
+hash not in the log means that design was never actually verified. Emit a reconciliation
+report — this is the evidence behind "every verdict came from a server Devin had no
+credentials to."
+
+---
+
+# PHASE 5 — Human validation gate (REQUIRED FEATURE)
+
+The regulatory asymmetry is real and the system must implement it, not just claim it.
+
+## Task 5.1 — Species routing
+After the loop converges, branch on `prescription.species`:
+
+- **Non-human** → the run is COMPLETE. Artifacts are released automatically. Status:
+  `released_autonomous`.
+- **Human** → the run enters `pending_human_validation`. Artifacts are generated but
+  **withheld from the release directory** until a human signs.
+
+Nothing about the design loop changes. The human never sees iterations 2 through N-1.
+The gate is a release gate, not a design step.
+
+## Task 5.2 — Validation package
+For a human case, assemble `review/<patient_id>/`:
+- the design dossier (Phase 6 report)
+- renders: plate on bone, stress field with hotspot, cross-section at the hotspot
+- the full iteration log
+- the verifier audit excerpt for this patient (proof the numbers are the server's)
+- a checklist reflecting DK §6: every check, measured value, limit, pass/fail
+
+## Task 5.3 — Sign-off mechanism
+`review/signoff.py`. A CLI or minimal local web page presenting the package and
+requiring: reviewer name, timestamp, explicit approve/reject, and free-text rationale on
+reject.
+
+On approve: write `signoff.json` (reviewer, timestamp, `step_sha256`, decision,
+rationale), flip status to `released_human_validated`, and copy artifacts into the
+release directory.
+
+On reject: status `rejected`, rationale recorded, artifacts stay withheld. Optionally
+feed the rationale back as a new constraint and re-run.
+
+**The signed hash must match the `step_sha256` in the audit log.** A signature on a design
+the verifier never saw is meaningless.
+
+## Task 5.4 — Enforcement
+No human-species artifact reaches the release directory without a valid `signoff.json`.
+Write a test that asserts this. The gate must be structural, not documentation.
+
+Pitch framing: *nobody touches the design loop. A human signs the design history file the
+same way a human merges a PR.*
+
+---
+
+# PHASE 6 — Artifacts (repo C)
+
+## Task 6.1 — Printable outputs
+STEP → STL. Slicer CLI → G-code. Open the G-code in a slicer viewer to confirm it is not
+garbage.
+
+## Task 6.2 — Verification report
+Per patient: stress figure with hotspot marked · peak von Mises, safety factor, stiffness
+(with the band shown), mass, clearance, screw checks · mesh convergence table proving the
+numbers are not a meshing artifact · simulated ASTM F382 four-point bend plus the
+physiological gait case · full iteration history.
+
+**Do not call it an ISO 13485 compliance report.** An auto-generated compliance document
+reads as theatre. A simulated standardized test result is a real artifact an engineer can
+act on.
+
+**Test:** hand it to someone outside the team; they should be able to say what the plate
+is and whether it passed.
+
+## Task 6.3 — Run-level outputs
+Convergence plots (metrics vs iteration, per patient) · iteration-1 vs final renders ·
+cost and wall-clock per validated plate · autonomy stats (completed / blocked / failed) ·
+level 2 strategy comparison for the showcase patient.
+
+---
+
+# PHASE 7 — Generality and demo
+
+## Task 7.1 — Full batch
+All 30 subjects, unattended. Record time and cost per plate — needed to answer whether
+this is actually cheaper than three engineer-days.
+
+## Task 7.2 — Cross-species run
+Same code, no changes, on a non-human bone mesh. If no non-human mesh can be sourced in
+20 minutes, run on scaled human bones and state plainly that the claim is architectural
+rather than demonstrated. Do not overclaim.
+
+## Task 7.3 — Demo script
+1. Live: one unseen CT → mesh → session triggered → converged plate → artifacts.
+2. Level 2 replay on the showcase patient: three strategies, one winner.
+3. Human case: gate fires, dossier presented, sign-off recorded.
+4. Audit reconciliation: server log matches every reported hash.
+
+**Fallback:** pre-record the full run and keep the audit log ready. The tunnel is the one
+failure mode we do not control.
+
+---
+
+# Ordering and parallelism
+
+| Track | Tasks | Blocking? |
+|---|---|---|
+| A | 0.1, 0.2, 1.1 → 1.6 | verifier gates everything |
+| B | 2.1 → 2.6 | parallel from the start |
+| C | 3.1 → 3.6 | needs 0.2 contract only, stub the verifier |
+| D | 4.1 → 4.5, then 5.x | needs A and C |
+| E | 6.x, 7.x | last |
+
+**Freeze the two contracts in Task 0.2 within the first hour** so tracks A and C build
+against stubs instead of against each other.
+
+**Non-negotiable order:** verifier before generator. Level 1 before level 2. Single
+patient converging end to end before any fan-out. Multi-agent on top of a loop that does
+not yet close is the standard way to have nothing working at the end.
+
+# Definition of done
+
+A prescription and a bone go in. A Devin session is triggered by API. It converges
+without a human. Artifacts are produced. Non-human cases release automatically; human
+cases wait for a signature that is cryptographically tied to the exact geometry the
+verifier scored. The whole thing runs on patients nobody prepared in advance.
+
+
+
+
+
+
+
+
+
+this is the plan of what we want,  check it against what we have and tell me whats missing , what were already doong good , what the next steps should be
