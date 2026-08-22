@@ -1,6 +1,6 @@
 # Attribution
 
-Both datasets in `src/data/` are CC-BY-4.0. Attribution is a licence
+Every dataset in `src/data/` is CC-BY-4.0. Attribution is a licence
 condition, not a courtesy — carry these into any paper, slide, or demo.
 
 ## ssm_tibia — primary bone geometry
@@ -20,6 +20,24 @@ are not in this repo; the derived surface meshes are the open part.
 The dataset's `Code/Supplementary/` bundles third-party MATLAB functions
 (CPD2, intriangulation). If any of that logic gets ported, cite the original
 authors — see the dataset's own README.
+
+## paed_ssm — target-population bone geometry (paediatric)
+
+> Carman L, Besier TF, Choisne J. 2022. Morphological variation in paediatric
+> lower limb bones. *Scientific Reports* 12:3251.
+> https://doi.org/10.1038/s41598-022-07267-4
+
+Dataset: https://simtk.org/projects/paed_ssm · paper CC-BY-4.0 · **account-gated,
+no anonymous mirror** (see `fetch/fetch_paed_ssm.sh`)
+
+Statistical shape model of pelvis, femur and tibia-fibula from 333 CT scans of
+children aged 4–18. The number worth quoting: SSM prediction of tibia-fibula
+geometry gives RMSE 1.85 ± 0.54 mm against 4.39 ± 0.86 mm for linear scaling of
+an adult mesh — published evidence that resizing an adult is not the same as
+shaping a child.
+
+Underlying CT is clinical paediatric imaging and is **not** redistributable;
+the shape model is the open derived artefact.
 
 ## TotalSegmentator — secondary / CT-mask path
 

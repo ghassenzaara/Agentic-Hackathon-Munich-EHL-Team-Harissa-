@@ -18,8 +18,9 @@ src/
 │
 ├── fetch/
 │   ├── fetch_ssm_tibia.sh              primary data, md5-verified, idempotent
+│   ├── fetch_paed_ssm.sh               target population (ages 4–18); needs SimTK login
 │   ├── fetch_totalsegmentator_lite.sh  secondary; --with-images for the 22.6 GB
-│   └── install_calculix.sh             conda|brew — the one non-pip dependency
+│   └── install_calculix.sh             conda|brew — superseded by pixi, kept as fallback
 │
 ├── refs/
 │   ├── DATA_NOTES.md           verified inventory + corrections to resources.md
@@ -27,6 +28,7 @@ src/
 │
 └── data/                       gitignored (3.2 GB: 2.0 GB extracted + 1.3 GB archives)
     ├── ssm_tibia/              30 tibia-fibula cases + 4 shape models
+    ├── paed_ssm/               paediatric SSM, ages 4–18 — empty until credentials
     ├── totalsegmentator_lite/  1228 CT mask volumes + metadata
     └── _downloads/             the source archives, kept for re-extraction
 ```
@@ -42,6 +44,7 @@ cheap.
 |---|---|
 | `ssm_tibia` meshes + SSM | **downloaded**, md5 verified, 445 STLs, 1.1 GB |
 | SSM readable without MATLAB | **verified** — reconstructs training surfaces to 1e-13 |
+| `paed_ssm` (ages 4–18) — *target population* | 🔑 **script ready, account-gated.** Needs `SIMTK_USER`/`SIMTK_PASS`; login flow tested, download unexercised |
 | TotalSegmentator masks | **downloaded**, 1228 volumes — but **no tibia label** |
 | TotalSegmentator CT images | not downloaded, 22.6 GB, script ready |
 | MedShapeNet | **unusable programmatically** — API serves samples only |
@@ -59,10 +62,20 @@ pixi run setup        # doctor + fetch data + sample 5 unseen anatomies to STL
 ```
 
 `pixi run setup` is the one command: it verifies imports and that `ccx` is on
-PATH, fetches the SSM data (~550 MB, resumable, md5-checked), then writes the
-mean plus 5 unseen anatomies as STL — the cheapest end-to-end check that the
+PATH, fetches the adult SSM data (~550 MB, resumable, md5-checked), then writes
+the mean plus 5 unseen anatomies as STL — the cheapest end-to-end check that the
 primary data is intact and usable. The steps are separately runnable as
 `pixi run doctor`, `pixi run fetch-ssm`, `pixi run ssm-sample`.
+
+**The target population needs one extra step.** `paed_ssm` (children, ages 4–18)
+is the second anatomy source and the one that matches the market. It is not in
+`setup` because SimTK gates it behind a login and there is no anonymous mirror:
+
+```bash
+# register free at https://simtk.org/account/register.php, then
+export SIMTK_USER=... SIMTK_PASS=...      # or put them in .env
+pixi run fetch-paed
+```
 
 CalculiX now comes from conda-forge as part of the locked environment, so
 `fetch/install_calculix.sh` is no longer needed on the pixi path. See

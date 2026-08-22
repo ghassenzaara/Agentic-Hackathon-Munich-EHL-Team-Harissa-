@@ -24,16 +24,18 @@ Steps 5 and 7 are the human bottleneck. They are the only steps Devin owns. Ever
 
 **Industry:** CT or CBCT of the affected region, exported as DICOM.
 
-**Ours:** Two input paths into the same interface.
+**Ours:** Shape models, not scans. Two anatomy sources behind one interface.
 
-**Implementation**
-- Primary batch source: VSDFullBodyBoneModels, 30 subjects, lower extremity bone meshes as MATLAB MAT files. Clone recursively from GitHub, or pull the Zenodo release.
-- Live demo source: TotalSegmentator dataset, the 102-subject quick-download subset from Zenodo, not the full 23.6 GB set.
-- Load MAT with `scipy.io.loadmat`. If the file is v7.3 it is HDF5, so fall back to `h5py`. **Check this in the first ten minutes.**
+**Implementation** — sources as actually verified in `src/refs/DATA_NOTES.md`, which overrides earlier drafts of this section:
+- **Primary, working today: SimTK `ssm_tibia`.** 30 adult tibia-fibula cases (ages 19–40) plus 4 statistical shape models. Anonymous download from figshare, md5-verified, 445 STLs. `pixi run fetch-ssm`. Reading the `.mat` with `scipy.io.loadmat` is **already verified** — pre-v7.3, so no h5py fallback needed, and reconstruction matches training surfaces to 1e-13.
+- **Target population: SimTK `paed_ssm`.** Pelvis / femur / **tibia-fibula** SSM from 333 CT scans of children aged 4–18. `pixi run fetch-paed`. **Account-gated** — SimTK has no anonymous route and no figshare/Zenodo mirror, so this needs a free SimTK login in `.env`. Script written, login flow tested, download unexercised until credentials exist.
+- **Mask → mesh test fixture only: `totalsegmentator_lite`.** 1228 CT mask volumes. **It has no tibia label** (the v2 label set stops at femur), so it exercises the mask→mesh→quality-gate path and nothing more. It is not a tibia source and cannot back a "we also handle raw CT" claim.
 
-**Done when:** `load_case(subject_id) -> raw mesh or DICOM directory` works for both sources.
+**Why shape models rather than segmenting CT:** an SSM lets us *sample* unseen anatomies on demand, which is what backs "five unseen anatomies, live" without hand-picking examples. It also skips Step 2 entirely for the primary path.
 
-**Owner:** data person. **Budget:** 30 min.
+**Done when:** `load_case(subject_id) -> raw mesh` works for `ssm_tibia`, and `sample_anatomy(weights) -> mesh` works for both shape models.
+
+**Owner:** data person. **Budget:** 30 min adult (done), +15 min paediatric once the account exists.
 
 ---
 
@@ -259,6 +261,7 @@ The stiffness ceiling is the single most important entry. Without it, the fastes
 - **FEA is the fast loop, not the final word.** Industry validates FE predictions against physical bench testing with digital image correlation. We automate the loop that actually iterates; we do not replace physical validation.
 - **Bone material properties.** Real workflows map Hounsfield units to density to elasticity per voxel. We use a single constant. We know the difference and we say so.
 - **Soft tissue.** Real design accounts for muscle and nerve tissue. Our max-thickness cap is a crude proxy and we name it as such.
+- **We demo on adult bone; the market is paediatric and veterinary.** Adult tibia is the *weakest* market precisely because stock plates already fit there. `paed_ssm` (ages 4–18) closes half this gap and is one free registration away. The canine SSM is gated behind an author email request and is **not** reachable in this timeframe — so veterinary stays an argument, not a demo. Say which is which.
 - **Contralateral mirroring** is the standard trick for defect cases — mirror the healthy opposite limb. Not implemented; cheap to add.
 - **Regulatory split.** Veterinary use can run fully autonomous today. Human use ends with a qualified person signing the design dossier — the same way someone merges a PR. Nobody touches the design loop in either case.
 

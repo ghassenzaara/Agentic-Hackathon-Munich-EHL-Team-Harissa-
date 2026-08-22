@@ -91,6 +91,10 @@ description = "Verify the toolchain: imports, ccx solver, SSM data presence"
 cmd = "bash src/fetch/fetch_ssm_tibia.sh"
 description = "Primary anatomy data: 30 tibia-fibula cases + 4 SSMs (~550 MB, md5-checked, idempotent)"
 
+[tasks.fetch-paed]
+cmd = "bash src/fetch/fetch_paed_ssm.sh"
+description = "Target population: paediatric lower-limb SSM, ages 4-18 (needs SIMTK_USER/SIMTK_PASS -- account-gated)"
+
 [tasks.fetch-ts]
 cmd = "bash src/fetch/fetch_totalsegmentator_lite.sh"
 description = "Secondary: 1228 CT mask volumes. Pass --with-images for the 22.6 GB image set"

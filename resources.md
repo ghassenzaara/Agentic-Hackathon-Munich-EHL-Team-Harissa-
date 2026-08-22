@@ -12,11 +12,13 @@ inventory, with the numbers behind each claim, is in
 
 So the rest of this page can't be skimmed into a promise:
 
-- **One anatomy source only.** `ssm_tibia` works; every alternative we tried
+- **One anatomy source in hand.** `ssm_tibia` works; every alternative we tried
   either has no tibia label or can't be pulled programmatically. `paed_ssm` is the
-  identified second candidate but has not been pulled yet.
+  confirmed second source — the fetch script is written and its login flow tested,
+  but it needs a free SimTK account, so **no paediatric bytes are on disk yet**.
 - **Adult data, paediatric/veterinary market.** We demo on adults because that is
-  what is downloadable. The target population is not yet represented in the pipeline.
+  what is downloadable anonymously. Paediatric is one free registration away;
+  veterinary is not reachable in this timeframe at all.
 - **No raw-CT path.** It needs lower-limb CT plus TotalSegmentator's
   `appendicular_bones` task, whose weights licence is unchecked. Unbuilt scope.
 - **Nothing has been solved yet.** CalculiX is installed and answers `ccx -v`,
@@ -40,12 +42,38 @@ runs on. A dataset constraint, not the ambition.
 | **SimTK `ssm_tibia`** ([project](https://simtk.org/projects/ssm_tibia), [figshare](https://doi.org/10.6084/m9.figshare.20454462)) | 30 tibia-fibula surface meshes (ages 19–40) **plus 4 statistical shape models** | STL + MATLAB `.mat` | CC-BY-4.0 | ✅ **Downloaded and working.** md5-verified, 445 STLs, 1.1 GB; SSM reconstructs to 1e-13 from Python |
 | **TotalSegmentator dataset** ([Zenodo](https://zenodo.org/records/8367088)) | 1228 clinical CTs, 117 structures — **tibia is not one of them** | NIfTI masks | CC-BY-4.0 | ⚠️ **Downloaded, but no tibia label.** Usable only as a mask→mesh test fixture |
 | **MedShapeNet 2.0** ([portal](https://medshapenet.ikim.nrw/), [GitHub](https://github.com/GLARKI/MedShapeNet2.0)) | 100k+ anatomical shapes incl. bones | mesh | free, cite | ❌ **Not usable programmatically.** The Python API serves showcase samples only |
-| **SimTK `paed_ssm`** ([project](https://simtk.org/projects/paed_ssm)) — *target population* | SSM of pelvis / femur / **tibia-fibula**, ages 4–18, from 333 CT; predicts shape from age, height, weight | SSM | check on download | 🔜 **Not yet pulled.** Same platform and shape as `ssm_tibia`, so likely a near drop-in for `fetch_ssm_tibia.sh`. Best second source |
+| **SimTK `paed_ssm`** ([project](https://simtk.org/projects/paed_ssm), [paper](https://doi.org/10.1038/s41598-022-07267-4)) — *target population* | SSM of pelvis / femur / **tibia-fibula**, ages 4–18, from 333 CT; predicts shape from age, height, weight | SSM (`.mat`) + measurements CSV, 137 MB + 220 KB | CC-BY-4.0 (paper) | 🔑 **Account-gated, script written and waiting.** `fetch/fetch_paed_ssm.sh` runs as soon as `SIMTK_USER`/`SIMTK_PASS` exist. **Not** a drop-in for `fetch_ssm_tibia.sh` — see below |
 | **Canine femur/tibia/patella SSM** (97 CT, U. Zürich) — *target population* | veterinary lower-limb shape model | — | on request | ❌ **Gated.** Access by email to the authors; not viable in this timeframe |
 
 **`ssm_tibia` is not just primary — it is effectively our only tibia source.** It is already tibia, already STL, and skips the segmentation stage entirely. Its shape model lets us *sample* unseen anatomies on demand, which is how we back the "five unseen anatomies, live" claim without hand-picking examples. That path is verified working from plain Python (numpy + scipy, no MATLAB): 3500 points, 6996 triangles, 5 retained PCs = 90.3 % of variance, ≤3.7 mm truncation error, and shared mesh topology across samples, so plate-fitting logic written against the mean surface transfers without re-registration.
 
 Because it is the only source, it is also a single point of failure — worth saying out loud rather than implying a redundancy we do not have. Two caveats on the data itself: the participant CSV has **32 rows for 30 cases** (join on the case folders) and carries **no sex column**, so the 20M/10F split is a claim from the paper, not something recoverable from the files.
+
+### `paed_ssm` — the target-population source, and how to get it
+
+Same shape of artefact as `ssm_tibia` (a PCA shape model over registered
+surfaces) but built from **333 CT scans of children aged 4–18**, covering
+pelvis, femur and **tibia-fibula**. Two files, 137 MB and 220 KB.
+
+**The access route is different and that matters.** `ssm_tibia` is hosted on
+figshare and downloads anonymously; `paed_ssm` exists only on SimTK, whose
+`frs/download_confirm.php` redirects to `/account/login.php`. figshare and
+Zenodo were both searched for a mirror — there is none. So this needs a **free
+SimTK account** (instant registration), and `fetch_paed_ssm.sh` scrapes the
+login form's per-session CSRF token, posts credentials, then downloads with the
+session cookie. Everything up to the authenticated download is tested; the
+download itself is unexercised until credentials exist. Earlier drafts of this
+doc called it "likely a near drop-in for `fetch_ssm_tibia.sh`" — that was wrong,
+and it was wrong in the direction that costs time on the day.
+
+**Why it is worth the registration — the paper hands us our own argument.**
+Carman et al. measured exactly the thing we claim. Predicting paediatric bone
+shape with the SSM gives RMSE **1.85 ± 0.54 mm** on the tibia-fibula, while
+**linearly scaling an adult mesh** to the same child gives **4.39 ± 0.86 mm** —
+more than twice the error. That is published, third-party evidence that a child
+is not a small adult, and that resizing an adult template is the wrong move.
+It is the same distinction the whole build rests on: changing a *size* is not
+the same as changing a *shape*. Cite it rather than asserting it.
 
 **There is no working "we also handle raw CT" fallback yet.** TotalSegmentator was cast in that role, and it cannot play it: its 117-label set stops at `femur_left`/`femur_right` and never reaches the tibia, and its scans are mostly thorax/abdomen/pelvis, so the lower leg is usually outside the field of view. Tibia lives in TotalSegmentator's separate `appendicular_bones` task, which is not part of this dataset and whose model weights carry their own unchecked licence. Standing up the CT path therefore means sourcing lower-limb CT *and* clearing that licence — treat it as unbuilt scope, not a fallback in hand.
 

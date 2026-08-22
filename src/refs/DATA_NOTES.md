@@ -26,6 +26,16 @@ portal page. Where it contradicts `../../resources.md`, this file is right.
    MATLAB** (GIBBON, geom3d, export_fig). That is not a blocker — see below —
    but nothing in the dataset runs as shipped without MATLAB.
 
+4. **`paed_ssm` is account-gated, not merely "not yet pulled".**
+   `resources.md` called it "likely a near drop-in for `fetch_ssm_tibia.sh`".
+   It is not. `ssm_tibia` downloads anonymously from **figshare**; `paed_ssm`
+   exists only on **SimTK**, whose `frs/download_confirm.php` redirects to
+   `/account/login.php`. No figshare or Zenodo mirror exists (both searched via
+   their APIs). It needs a free SimTK account and a scraped per-session
+   `form_key` CSRF token — `fetch/fetch_paed_ssm.sh` does this. The login and
+   failure paths are tested; the authenticated download is not, because no
+   credentials exist yet.
+
 Net effect: **`ssm_tibia` is not just the primary source, it is effectively
 the only tibia source.** The SSM sampling path is what backs "five unseen
 anatomies", so it carries more weight than the brief assumes.
@@ -106,3 +116,7 @@ mesh-check path** (femur is at least a long bone), not as tibia geometry.
 - **ASTM F382** — paywalled, ~$70. Output stays labelled "F382-style".
 - **NMDID source CTs** — registration required, not redistributable, and not
   needed: the derived meshes are the open part.
+- **`paed_ssm` files** — `Lower_limb_bone_pred.zip` (137 MB) and
+  `Clinical_bone_measurements.zip` (220 KB). Behind a SimTK login, so no bytes
+  and therefore **no pinned checksum**; `fetch_paed_ssm.sh` prints the md5 it
+  receives so the first successful run can pin it.
