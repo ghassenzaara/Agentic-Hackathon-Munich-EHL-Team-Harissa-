@@ -23,15 +23,21 @@ parameter sweep is an optimiser, editing this file is engineering.
 
 from __future__ import annotations
 
-import json
+import math
 from pathlib import Path
 
 import cadquery as cq
+import numpy as np
 
+from . import case_io
 from .bone import max_surface_x
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCREWS_JSON = REPO_ROOT / "inputs" / "screw_positions.json"
+
+# Lanes across the plate width used to find the seating height. Matches the
+# lane count the geometry validator measures the bone gap along, so the
+# generator and its examiner are looking at the same geometry.
+N_SEAT_LANES = 5
 
 # Flip these to True as you implement the corresponding geometry below.
 THICKNESS_PROFILE_IMPLEMENTED = False
@@ -40,10 +46,20 @@ HOLE_SLOTS_IMPLEMENTED = False
 CONTOUR_SPLINE_IMPLEMENTED = False
 
 
-def _screw_z() -> list[float]:
-    """Screw heights, read from the LOCKED planning input. Never hard-code these."""
-    data = json.loads(SCREWS_JSON.read_text(encoding="utf-8"))
-    return [s["entry_mm"][2] for s in data["screws"]]
+def _screws() -> list[dict]:
+    """The LOCKED planning input, in full. Never hard-code these.
+
+    Which planning file that is comes from the active case, not a constant, so a
+    real imported case builds against its own screws (see autoimplants.case_io),
+    and ``direction`` arrives unit-normalised.
+
+    This used to return heights only. Everything else about a screw -- where it
+    enters and which way it points -- was discarded, which meant the plate was
+    only ever correct for planning data whose screws happened to sit on the y=0
+    centreline and run along -X. The synthetic femur does exactly that, so the
+    assumption was invisible until a real plan arrived with angled screws.
+    """
+    return case_io.load_screws()
 
 
 def _guard_unimplemented(params: dict) -> None:
@@ -99,20 +115,42 @@ def build_implant(params: dict) -> cq.Workplane:
     fillet = float(params["fillet_mm"])
     clearance = float(params["mount_clearance_mm"])
 
-    screw_z = _screw_z()
-    z_center = 0.5 * (min(screw_z) + max(screw_z))
+    screws = _screws()
+    entries = np.array([s["entry_mm"] for s in screws], dtype=float)
+
+    z_center = 0.5 * (float(entries[:, 2].min()) + float(entries[:, 2].max()))
     z0, z1 = z_center - length / 2.0, z_center + length / 2.0
+
+    # Follow the screws across the width, rather than assuming they sit on y=0.
+    # A real shaft's mounting aspect wanders in y, and the plate has to be where
+    # the screws are or none of the bores can clear.
+    y_center = float(entries[:, 1].mean())
+    y_span = float(entries[:, 1].max() - entries[:, 1].min())
+    if y_span + hole_d > width + 1e-9:
+        raise ValueError(
+            f"screws span {y_span:.1f} mm across the plate width and each needs "
+            f"{hole_d:.1f} mm of bore, so this plan needs at least "
+            f"{y_span + hole_d:.1f} mm of width; params['width_mm'] is {width:.1f} mm. "
+            f"Widen the plate or reject the plan -- do not truncate it, because a "
+            f"screw the plate does not reach is a screw that fixes nothing."
+        )
 
     # A flat plate has to clear the most protruding point of the bow, otherwise it
     # cuts into the shaft. This is exactly why it then gapes at both ends. The
     # clearance is held at the apex, so the gap only grows from there -- which is
     # the whole problem a contoured plate solves.
-    mount_x = max_surface_x(z0, z1) + clearance
+    #
+    # Seating is measured along the lanes the plate actually covers, not the y=0
+    # centreline alone: on irregular cortex the most protruding point under the
+    # plate is often not on its midline, and seating to the midline would bury
+    # the plate edge in bone.
+    seat_lanes = np.linspace(y_center - width / 2.0, y_center + width / 2.0, N_SEAT_LANES)
+    mount_x = max_surface_x(z0, z1, ys=seat_lanes) + clearance
 
     plate = (
         cq.Workplane("YZ")
         .workplane(offset=mount_x)
-        .moveTo(0.0, z_center)
+        .moveTo(y_center, z_center)
         .rect(width, length)
         .extrude(thickness)
     )
@@ -121,13 +159,23 @@ def build_implant(params: dict) -> cq.Workplane:
     if fillet > 0:
         plate = plate.edges("|X").fillet(fillet)
 
-    # Screw holes: straight through the plate along -X at y = 0.
-    for z in screw_z:
+    # Screw bores, each along its own planned trajectory. The cutter starts well
+    # outside the plate and is long enough to leave it again whatever the angle,
+    # so an obliquely angled screw gets a bore that runs all the way through
+    # instead of a hole drilled straight down the X axis it does not follow.
+    plate_center = np.array([mount_x + thickness / 2.0, y_center, z_center])
+    diagonal = math.sqrt(length**2 + width**2 + thickness**2)
+
+    for screw, entry in zip(screws, entries):
+        direction = np.array(screw["direction"], dtype=float)  # unit, via case_io
+        reach = diagonal + float(np.linalg.norm(entry - plate_center))
+        start = entry - direction * reach
+
         cutter = cq.Solid.makeCylinder(
             hole_d / 2.0,
-            thickness + 4.0,
-            cq.Vector(mount_x - 2.0, 0.0, z),
-            cq.Vector(1.0, 0.0, 0.0),
+            2.0 * reach,
+            cq.Vector(*start),
+            cq.Vector(*direction),
         )
         plate = plate.cut(cq.Workplane(obj=cutter))
 

@@ -13,16 +13,22 @@ one artefact that stays valid if the generator is rewritten to use a different
 kernel. STEP is the manufacturing deliverable (see autoimplants/export.py); the
 STL is the measurement surface. Its tessellation tolerance is set tight enough
 that faceting error alone cannot fail a threshold.
+
+Two assumptions were removed when real CT cases arrived, because neither held
+outside the synthetic femur: that screws always run along -X (they now cast along
+their own direction), and that the plate-bone gap can be read off the y=0
+centreline (it is now sampled across the plate width). Both changes are strictly
+more conservative -- they can only find violations the old checks missed.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
 
-from ..bone import DEFAULT_BONE, load_bone, surface_profile
+from .. import case_io
+from ..bone import load_bone, surface_grid
 from ..contracts import FAIL, PASS, Check, Report
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -33,6 +39,9 @@ EDGE_INSET_MM = 2.0
 N_THICKNESS_Y = 9
 N_THICKNESS_Z = 41
 N_PROFILE_SAMPLES = 31
+# Lanes across the plate width for the bone-gap checks. Odd so one lane is the
+# centreline, keeping the historical measurement inside the new envelope.
+N_PROFILE_LANES = 5
 
 
 def _load(path: str):
@@ -44,16 +53,16 @@ def _load(path: str):
     return mesh
 
 
-def _screws() -> list[dict]:
-    data = json.loads((REPO_ROOT / "inputs" / "screw_positions.json").read_text("utf-8"))
-    return data["screws"]
+def _screws(case: dict) -> list[dict]:
+    return case_io.load_screws(case)
 
 
-def _keepouts() -> list[dict]:
-    p = REPO_ROOT / "inputs" / "keepout_zones.json"
-    if not p.exists():
-        return []
-    return json.loads(p.read_text("utf-8"))["zones"]
+def _keepouts(case: dict) -> list[dict]:
+    return case_io.load_keepouts(case)
+
+
+def _bone(case: dict):
+    return load_bone(case_io.bone_path(case))
 
 
 def _x_chords(mesh, y: float, z: float) -> list[float]:
@@ -67,6 +76,50 @@ def _x_chords(mesh, y: float, z: float) -> list[float]:
     xs = np.sort(hits[:, 0])
     # Entry/exit pairs. Odd counts mean a degenerate or non-manifold hit; drop the tail.
     return [float(xs[i + 1] - xs[i]) for i in range(0, len(xs) - 1, 2)]
+
+
+def _lanes(mesh) -> np.ndarray:
+    """y positions across the plate width to measure the bone gap along."""
+    lo, hi = mesh.bounds
+    span = float(hi[1] - lo[1])
+    inset = min(EDGE_INSET_MM, 0.25 * span)
+    return np.linspace(float(lo[1]) + inset, float(hi[1]) - inset, N_PROFILE_LANES)
+
+
+def _first_hit_x(mesh, ys: np.ndarray, zs: np.ndarray) -> np.ndarray:
+    """x where a +X ray at each (y, z) first meets the part. NaN if it misses.
+
+    One batched cast: the per-sample Python loop this replaced was the dominant
+    cost of the gap check, and multiplying the sample count by the number of
+    lanes would have made it the dominant cost of the whole validator.
+    """
+    m = ys.size
+    if m == 0:
+        return np.zeros(0)
+    origins = np.column_stack([np.full(m, float(mesh.bounds[0][0]) - 10.0), ys, zs])
+    directions = np.tile([1.0, 0.0, 0.0], (m, 1))
+    hits, ray_idx, _ = mesh.ray.intersects_location(
+        ray_origins=origins, ray_directions=directions
+    )
+    best = np.full(m, np.inf)
+    if len(hits):
+        np.minimum.at(best, ray_idx, hits[:, 0])
+    return np.where(np.isfinite(best), best, np.nan)
+
+
+def _perpendicular_basis(d: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Two unit vectors spanning the plane perpendicular to unit vector ``d``.
+
+    The old code built the ring in the Y-Z plane, which is perpendicular to the
+    trajectory only while every screw runs along X. Real planning data has
+    obliquely angled screws, and a ring in the wrong plane samples an ellipse
+    wider than the bore -- reporting a blocked screw where the bore is open.
+    """
+    seed = np.array([0.0, 0.0, 1.0]) if abs(d[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    u = np.cross(d, seed)
+    u /= np.linalg.norm(u)
+    v = np.cross(d, u)
+    return u, v / np.linalg.norm(v)
 
 
 # --- individual checks -------------------------------------------------------
@@ -118,8 +171,10 @@ def check_envelope(mesh, case: dict) -> list[Check]:
 
     # Standoff: how far the part protrudes beyond the bone surface it mounts on.
     z0, z1 = float(lo[2]), float(hi[2])
-    prof = surface_profile(z0, z1, n=N_PROFILE_SAMPLES)
-    bone_max_x = float(np.nanmax(prof[:, 1]))
+    _, _, bone_xs = surface_grid(
+        z0, z1, ys=_lanes(mesh), n=N_PROFILE_SAMPLES, path=case_io.bone_path(case)
+    )
+    bone_max_x = float(np.nanmax(bone_xs))
     standoff = float(hi[0]) - bone_max_x
     checks.append(
         Check(
@@ -195,7 +250,7 @@ def check_mass(mesh, case: dict) -> Check:
 
 
 def check_bone_collision(mesh, case: dict) -> Check:
-    bone = load_bone(DEFAULT_BONE)
+    bone = _bone(case)
     inside = bone.contains(mesh.vertices)
     n_inside = int(inside.sum())
     loc = None
@@ -225,37 +280,35 @@ def check_bone_conformance(mesh, case: dict) -> list[Check]:
     interrupts the blood supply the fracture heals through. Zero clearance is not
     the optimum, which is why limited-contact plate designs exist.
 
-    Both bounds come out of one ray-cast pass over the same profile. Note the
-    profile is sampled along the y=0 centreline only, so off-centre seating is
-    not measured by either bound.
+    Both bounds come out of one ray-cast pass. The profile is sampled along
+    several lanes across the plate width, not just the y=0 centreline: a shaft is
+    curved in both planes, so a plate can seat on its centreline and still stand
+    off -- or dig in -- at its edges.
     """
     thresholds = case.get("thresholds", {})
     max_limit = thresholds.get("max_bone_gap_mm", 1e9)
     min_limit = thresholds.get("min_bone_gap_mm")
     lo, hi = mesh.bounds
-    prof = surface_profile(float(lo[2]), float(hi[2]), n=N_PROFILE_SAMPLES)
 
-    worst_gap = -float("inf")
-    worst_z = None
-    tightest_gap = float("inf")
-    tightest_z = None
-    for z, bone_x in prof:
-        if np.isnan(bone_x):
-            continue
-        # First hit travelling +X is the implant's bone-facing surface.
-        hits, _, _ = mesh.ray.intersects_location(
-            ray_origins=np.array([[lo[0] - 10.0, 0.0, z]]),
-            ray_directions=np.array([[1.0, 0.0, 0.0]]),
-        )
-        if len(hits) == 0:
-            continue
-        gap = float(hits[:, 0].min()) - float(bone_x)
-        if gap > worst_gap:
-            worst_gap, worst_z = gap, float(z)
-        if gap < tightest_gap:
-            tightest_gap, tightest_z = gap, float(z)
+    lanes = _lanes(mesh)
+    zs, ys, bone_xs = surface_grid(
+        float(lo[2]), float(hi[2]), ys=lanes, n=N_PROFILE_SAMPLES,
+        path=case_io.bone_path(case),
+    )
 
-    if worst_z is None:
+    zz, yy = np.meshgrid(zs, ys, indexing="ij")
+    flat_bone = bone_xs.reshape(-1)
+    flat_y = yy.reshape(-1)
+    flat_z = zz.reshape(-1)
+
+    seen = np.isfinite(flat_bone)
+    implant_x = np.full(flat_bone.shape, np.nan)
+    implant_x[seen] = _first_hit_x(mesh, flat_y[seen], flat_z[seen])
+
+    gaps = implant_x - flat_bone
+    measured = np.isfinite(gaps)
+
+    if not measured.any():
         return [
             Check(
                 id="bone_conformance_gap",
@@ -271,6 +324,11 @@ def check_bone_conformance(mesh, case: dict) -> list[Check]:
             ),
         ]
 
+    idx_worst = int(np.nanargmax(np.where(measured, gaps, -np.inf)))
+    idx_tight = int(np.nanargmin(np.where(measured, gaps, np.inf)))
+    worst_gap = float(gaps[idx_worst])
+    tightest_gap = float(gaps[idx_tight])
+
     ok_max = worst_gap <= max_limit + 1e-6
     checks = [
         Check(
@@ -279,11 +337,16 @@ def check_bone_conformance(mesh, case: dict) -> list[Check]:
             value=round(worst_gap, 3),
             limit=max_limit,
             unit="mm",
-            location=[round(float(mesh.bounds[0][0]), 3), 0.0, round(worst_z, 2)],
+            location=[
+                round(float(implant_x[idx_worst]), 3),
+                round(float(flat_y[idx_worst]), 2),
+                round(float(flat_z[idx_worst]), 2),
+            ],
             message=(
                 "implant follows the bone surface within tolerance"
                 if ok_max
-                else f"implant stands {worst_gap:.2f} mm off the bone at z={worst_z:.0f} mm; "
+                else f"implant stands {worst_gap:.2f} mm off the bone at "
+                     f"y={flat_y[idx_worst]:.1f}, z={flat_z[idx_worst]:.0f} mm; "
                      f"the plate must follow the contour of the shaft"
             ),
         )
@@ -301,12 +364,17 @@ def check_bone_conformance(mesh, case: dict) -> list[Check]:
             value=round(tightest_gap, 3),
             limit=min_limit,
             unit="mm",
-            location=[round(float(mesh.bounds[0][0]), 3), 0.0, round(tightest_z, 2)],
+            location=[
+                round(float(implant_x[idx_tight]), 3),
+                round(float(flat_y[idx_tight]), 2),
+                round(float(flat_z[idx_tight]), 2),
+            ],
             message=(
                 "implant keeps a periosteal clearance off the bone"
                 if ok_min
                 else f"implant sits {tightest_gap:.2f} mm from the bone at "
-                     f"z={tightest_z:.0f} mm, inside the {min_limit} mm minimum"
+                     f"y={flat_y[idx_tight]:.1f}, z={flat_z[idx_tight]:.0f} mm, "
+                     f"inside the {min_limit} mm minimum"
                      + (
                          " -- the surface has crossed into the bone"
                          if tightest_gap < 0
@@ -322,20 +390,25 @@ def check_screws(mesh, case: dict) -> list[Check]:
     """Every planned screw must still have an unobstructed bore through the plate."""
     checks = []
     blocked = []
-    for s in _screws():
+    screws = _screws(case)
+    diag = float(np.linalg.norm(mesh.bounds[1] - mesh.bounds[0]))
+
+    for s in screws:
         entry = np.array(s["entry_mm"], dtype=float)
-        d = np.array(s["direction"], dtype=float)
+        d = np.array(s["direction"], dtype=float)  # unit, normalised by case_io
         r = 0.45 * float(s["diameter_mm"])  # just inside the nominal bore
 
-        # Centre ray plus a ring, all launched from outside the part. The ring is
-        # built in the Y-Z plane, which is only perpendicular to the trajectory
-        # because every planned screw runs along -X. Generalise this if a screw
-        # direction ever stops being axis-aligned.
+        # Centre ray plus a ring, all launched from outside the part, in the plane
+        # perpendicular to this screw's own trajectory.
+        u, v = _perpendicular_basis(d)
         offsets = [np.zeros(3)]
         for ang in (0.0, np.pi / 2, np.pi, 3 * np.pi / 2):
-            offsets.append(np.array([0.0, r * np.cos(ang), r * np.sin(ang)]))
+            offsets.append(r * (np.cos(ang) * u + np.sin(ang) * v))
 
-        origin = entry - d * 60.0
+        # Back off far enough to start outside the part whatever the entry point
+        # is, rather than the fixed 60 mm that assumed the synthetic geometry.
+        backoff = diag + float(np.linalg.norm(entry - mesh.bounds.mean(axis=0)))
+        origin = entry - d * backoff
         origins = np.array([origin + o for o in offsets])
         dirs = np.tile(d, (len(offsets), 1))
         hits, _, _ = mesh.ray.intersects_location(ray_origins=origins, ray_directions=dirs)
@@ -344,8 +417,8 @@ def check_screws(mesh, case: dict) -> list[Check]:
         if len(hits):
             blocked.append(s["id"])
 
-    n_ok = len(_screws()) - len(blocked)
-    required = int(case.get("thresholds", {}).get("require_all_screws", len(_screws())))
+    n_ok = len(screws) - len(blocked)
+    required = int(case.get("thresholds", {}).get("require_all_screws", len(screws)))
     ok = n_ok >= required
     checks.append(
         Check(
@@ -355,7 +428,7 @@ def check_screws(mesh, case: dict) -> list[Check]:
             limit=float(required),
             unit="count",
             message=(
-                f"{n_ok} of {len(_screws())} planned screws have an open bore through the plate"
+                f"{n_ok} of {len(screws)} planned screws have an open bore through the plate"
                 if ok
                 else f"obstructed screw bores: {', '.join(blocked)}. Screw positions are "
                      f"locked planning input -- the implant must accommodate them."
@@ -368,7 +441,7 @@ def check_screws(mesh, case: dict) -> list[Check]:
 def check_keepouts(mesh, case: dict) -> list[Check]:
     limit = float(case.get("thresholds", {}).get("max_keepout_encroach_mm", 0.0))
     checks = []
-    for zone in _keepouts():
+    for zone in _keepouts(case):
         if zone.get("type") != "sphere":
             continue
         center = np.array([zone["center_mm"]], dtype=float)
@@ -418,5 +491,6 @@ def validate(implant_path: str, case: dict) -> Report:
             "validator": "geometry",
             "triangles": int(len(mesh.faces)),
             "volume_mm3": round(float(mesh.volume), 2),
+            "bone_mesh": str(case_io.bone_path(case)),
         },
     )
