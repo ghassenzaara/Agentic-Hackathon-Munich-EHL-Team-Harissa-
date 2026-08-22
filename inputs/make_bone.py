@@ -176,9 +176,13 @@ def keepout_zones() -> dict:
             {
                 "id": "perforating_vessel_bundle",
                 "type": "sphere",
-                "center_mm": [round(lateral_surface_x(z_mid), 3), 14.0, z_mid],
+                "center_mm": [round(lateral_surface_x(z_mid), 3), 14.8, z_mid],
                 "radius_mm": 6.0,
-                "rationale": "Blocks widening the plate past ~16 mm at mid-span.",
+                # Placed so a 16 mm plate clears by 0.8 mm and an 18 mm plate
+                # encroaches. A knife-edge margin here would make the check
+                # float-point flaky, which in an autonomous loop reads as the
+                # design randomly regressing.
+                "rationale": "Blocks widening the plate past ~17 mm at mid-span.",
             },
             {
                 "id": "proximal_neurovascular_corridor",

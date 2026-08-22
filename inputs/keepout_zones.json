@@ -6,11 +6,11 @@
       "type": "sphere",
       "center_mm": [
         34.933,
-        14.0,
+        14.8,
         190.0
       ],
       "radius_mm": 6.0,
-      "rationale": "Blocks widening the plate past ~16 mm at mid-span."
+      "rationale": "Blocks widening the plate past ~17 mm at mid-span."
     },
     {
       "id": "proximal_neurovascular_corridor",
