@@ -59,3 +59,7 @@ yeah build right now to use after in the UI and does not daven use also a render
 ---
 
 okay just stop using claude in chrome and answer me did you just choose to show a wrong implant or is it not working?
+
+---
+
+oaky that's it since its working i'm merging to main to try to get daven set up and try everything end to end. Just confirm: right now it's supposed to work on real ct scans?
