@@ -17,7 +17,8 @@ Stated once, honestly:
 - Physics is a **reduced-order analytical surrogate**, not clinical FEA.
 - One bone, one plate, one load case. No fatigue, no multi-material, no contact
   mechanics.
-- **Not a clinical device.** Synthetic anatomy only. No FDA/ISO/ASTM claim.
+- **Not a clinical device.** Synthetic demo by default; a real CT-derived mesh is
+  supported through the importer. No FDA/ISO/ASTM claim either way.
 
 ## Quick start
 
@@ -43,7 +44,31 @@ python -m autoimplants.run --validators stub --no-build   # zero dependencies, f
 python inputs/make_bone.py                               # regenerate the anatomy (deterministic)
 python -m harness.smoke --dry-run                        # print the Devin prompt, no API key needed
 python -m harness.guard <base-sha>                       # did Devin only touch the design surface?
+python -m pytest tests -q                                # the suite
 ```
+
+## Real CT cases
+
+The synthetic femur is the default. A bone segmented from real CT imaging runs
+through the same loop, via an importer that takes the mesh plus an external
+surgical plan:
+
+```bash
+python -m autoimplants.import_case     --case real_cases/<case_id>/surgical_plan.json     --bone real_cases/<case_id>/bone.stl
+
+python -m autoimplants.run     --case real_cases/<case_id>/generated/case.json --validators geometry,stress
+```
+
+The importer recovers the repo frame from the plan's landmarks — real
+segmentations arrive in scanner coordinates, obliquely angled — gates the mesh
+for scale, islands and watertightness, and checks the plan against the actual
+bone before writing anything. Raw DICOM is a separate phase-2 command,
+`autoimplants.dicom_to_mesh`, with its own optional dependencies.
+
+Nothing is invented: a plan missing screws or landmarks is rejected by name.
+
+**See [docs/real-ct-cases.md](docs/real-ct-cases.md)** for the full sequence, the
+plan schema, and the patient-data rules.
 
 ## The loop
 
@@ -70,6 +95,14 @@ generate (CadQuery) → export STEP (deliverable) + STL (measured) → geometry 
 | `autoimplants/validators/` | `validate(implant_path, case) -> Report`. Geometry runs first, then stress. |
 | `autoimplants/bone.py` | Bone surface sampling, shared by generator and validator so they cannot disagree. |
 | `inputs/` | Locked: anatomy, surgical plan, keepout zones, thresholds. |
+| `autoimplants/import_case.py` | Real mesh + surgical plan → a runnable case in the repo frame. |
+| `autoimplants/surgical_plan.py` | Plan schema, frame recovery, checks against the actual bone. |
+| `autoimplants/mesh_quality.py` | Gate for meshes arriving from outside: scale, islands, watertightness. |
+| `autoimplants/dicom_to_mesh.py` | Raw DICOM series → candidate mesh, in patient coordinates. |
+| `autoimplants/landmarks.py` | Fits the shaft axis and scaffolds a plan template from a mesh. |
+| `autoimplants/section.py` | Cross-section A, I and c, measured off the exported solid. |
+| `real_cases/` | Imported cases. Never patient data — see docs/real-ct-cases.md. |
+| `tests/` | pytest. Round-trips a known pose through the importer. |
 | `harness/` | Devin API client, smoke test, locked-file guard, loop. |
 | `runs/` | Committed per-iteration artefacts — the demo record. |
 
@@ -93,6 +126,11 @@ The generator enforces this directly: `build_implant()` raises
 it. Setting `ribs=[...]` and hoping is not a valid move.
 
 See `design_space_note` in `inputs/case.json` before recalibrating anything.
+
+That argument is calibrated to the synthetic case specifically — its 22 mm bow,
+its three keepouts, its 39 g cap. An imported real case carries its own
+thresholds from its surgical plan, so the "no scalar tweak can pass" property has
+to be re-established per case, not assumed.
 
 ## Guardrail
 
@@ -119,8 +157,11 @@ never checking the implant against numbers that do not touch the bone.
 
 That anterior bow is what makes the generic flat plate fail on this patient. The
 plate is mounted with a 0.4 mm clearance at the apex of the bow, and because it is
-straight the gap can only grow from there — 6.57 mm at the proximal end, against
-the 1.5 mm `max_bone_gap_mm` limit.
+straight the gap can only grow from there — 8.60 mm at the proximal end, against
+the 1.5 mm `max_bone_gap_mm` limit. That worst case is on the plate's edge, not
+its centreline: the gap is sampled across the plate width, because a shaft curves
+in both planes and a plate can seat on its centreline while standing off at its
+edges.
 
 The gap is bounded from both sides. `min_bone_gap_mm` is 0.1 mm, because a plate
 pressed onto bone crushes the periosteum and interrupts the blood supply the

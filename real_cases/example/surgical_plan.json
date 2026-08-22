@@ -1,0 +1,203 @@
+{
+  "case_id": "EXAMPLE-FEMUR-CT-001",
+  "provenance": "SYNTHETIC STAND-IN FOR REAL DATA -- the synthetic femur from inputs/, rigidly transformed into an arbitrary scanner-like frame so the import path can be exercised and tested without committing patient imaging. Not patient data. No clinical or regulatory claim.",
+  "bone": "femur",
+  "side": "right",
+  "approach": "lateral",
+  "coordinate_frame": {
+    "note": "Landmarks are in the same frame as bone.stl. The importer derives the repo frame from them: +Z proximal to distal, origin at the proximal landmark, +X the mount aspect.",
+    "landmarks": {
+      "proximal_shaft_mm": [
+        -118.5,
+        342.0,
+        -87.25
+      ],
+      "distal_shaft_mm": [
+        -64.22241052335606,
+        99.63356577209214,
+        226.29816988822336
+      ],
+      "mount_side_mm": [
+        -81.91441712514452,
+        248.2522477512656,
+        89.0958365655878
+      ]
+    }
+  },
+  "footprint_z_mm": [
+    100.0,
+    280.0
+  ],
+  "screws": [
+    {
+      "id": "screw_0",
+      "entry_mm": [
+        -94.70077908760322,
+        296.11795625399265,
+        19.87219539223608
+      ],
+      "direction": [
+        -0.2699082324723861,
+        -0.7838704247205582,
+        -0.5591929034707469
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_1",
+      "entry_mm": [
+        -89.92172067484739,
+        279.9973496813663,
+        44.855630312560066
+      ],
+      "direction": [
+        -0.2699082324723861,
+        -0.7838704247205582,
+        -0.5591929034707469
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_2",
+      "entry_mm": [
+        -85.4209376497706,
+        263.06857270085305,
+        69.26253734940573
+      ],
+      "direction": [
+        -0.2699082324723861,
+        -0.7838704247205582,
+        -0.5591929034707469
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_3",
+      "entry_mm": [
+        -81.23999588017355,
+        245.21090926704596,
+        93.00680079563855
+      ],
+      "direction": [
+        -0.2699082324723861,
+        -0.7838704247205582,
+        -0.5591929034707469
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_4",
+      "entry_mm": [
+        -77.38213426484597,
+        226.41495293484834,
+        116.08171033641688
+      ],
+      "direction": [
+        -0.2699082324723861,
+        -0.7838704247205582,
+        -0.5591929034707469
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    },
+    {
+      "id": "screw_5",
+      "entry_mm": [
+        -73.79768968901291,
+        206.8249358624088,
+        138.59015746597933
+      ],
+      "direction": [
+        -0.2699082324723861,
+        -0.7838704247205582,
+        -0.5591929034707469
+      ],
+      "diameter_mm": 4.5,
+      "length_mm": 34.0
+    }
+  ],
+  "keepouts": [
+    {
+      "id": "perforating_vessel_bundle",
+      "type": "sphere",
+      "center_mm": [
+        -97.39793761857072,
+        256.26716009914287,
+        85.214308234441
+      ],
+      "radius_mm": 6.0,
+      "rationale": "Blocks widening the plate past 17.6 mm at mid-span."
+    },
+    {
+      "id": "proximal_neurovascular_corridor",
+      "type": "sphere",
+      "center_mm": [
+        -99.57592483111924,
+        311.9595049554185,
+        -5.310312201723491
+      ],
+      "radius_mm": 12.0,
+      "rationale": "Blocks extending the plate proximally past z=100."
+    },
+    {
+      "id": "distal_physeal_scar",
+      "type": "sphere",
+      "center_mm": [
+        -69.68484422197645,
+        183.7695064059758,
+        164.70704546481485
+      ],
+      "radius_mm": 15.0,
+      "rationale": "Blocks extending the plate distally past z=280."
+    }
+  ],
+  "material": {
+    "name": "Ti-6Al-4V (Grade 5), annealed",
+    "youngs_modulus_GPa": 114.0,
+    "poisson_ratio": 0.34,
+    "yield_strength_MPa": 880.0,
+    "density_g_cm3": 4.43,
+    "allowable_stress_MPa": 350.0,
+    "allowable_basis": "yield 880 MPa with a safety factor of 2.5 => 352 MPa, rounded down to 350"
+  },
+  "envelope": {
+    "max_width_mm": 20.0,
+    "max_standoff_mm": 6.0,
+    "thickness_bounds_mm": {
+      "min": 2.5,
+      "max": 4.5
+    }
+  },
+  "thresholds": {
+    "max_stress_MPa": 350.0,
+    "min_wall_mm": 2.5,
+    "max_bone_gap_mm": 1.5,
+    "min_bone_gap_mm": 0.1,
+    "min_screw_pullout_N": 1200.0,
+    "max_implant_mass_g": 39.0,
+    "max_keepout_encroach_mm": 0.0,
+    "require_watertight": true,
+    "require_all_screws": 6
+  },
+  "load_cases": [
+    {
+      "id": "axial_stance",
+      "type": "axial",
+      "force_N": 2100.0,
+      "basis": "single-leg stance, ~3x bodyweight for a 70 kg patient"
+    },
+    {
+      "id": "gait_bending",
+      "type": "bending",
+      "moment_Nm": 15.0,
+      "axis": "medio-lateral",
+      "basis": "peak diaphyseal bending moment during level gait"
+    }
+  ],
+  "load_notes": "Copied from the synthetic case. A real case would carry the patient's own load estimate.",
+  "iteration_budget": 8
+}

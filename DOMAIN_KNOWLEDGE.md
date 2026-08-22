@@ -334,10 +334,10 @@ report is written to `out/report.json`, and the same content is printed as a tab
 CHECK                        STATUS      VALUE / LIMIT      UNIT
 ------------------------------------------------------------------------------
 implant_mass                 PASS       36.996 / 39         g
-bone_conformance_gap         FAIL        6.566 / 1.5        mm     at (35.4, 0, 100)
-    -> implant stands 6.57 mm off the bone at z=100 mm; the plate must follow the contour
+bone_conformance_gap         FAIL        8.596 / 1.5        mm     at (35.4, 6, 100)
+    -> implant stands 8.60 mm off the bone at y=6.0, z=100 mm; the plate must follow the contour
 bone_clearance_min           PASS        0.398 / 0.1        mm     at (35.4, 0, 202)
-stress_max_bending           SKIP            - / 350        MPa
+stress_max_bending           FAIL       765.04 / 350        MPa    at (36.9, 0, 175)
 ```
 
 Every check carries a measured `value`, the `limit` it was tested against, and where in the
@@ -362,17 +362,26 @@ The single most important table in this file. A check marked SKIP **cannot fail 
 | `bone_clearance_min` | `min_bone_gap_mm` = 0.1 mm | **enforced** |
 | `screw_trajectories_clear` | `require_all_screws` = 6 | **enforced** |
 | `keepout_*` (3 zones) | `max_keepout_encroach_mm` = 0 | **enforced** |
-| `stress_max_bending`, `stress_hole_0..5` | `max_stress_MPa` = 350 | **SKIP — not implemented** |
-| `screw_pullout_min` | `min_screw_pullout_N` = 1200 | **SKIP — not implemented** |
+| `stress_max_bending`, `stress_hole_0..5` | `max_stress_MPa` = 350 | **enforced** — beam model over sections measured off the exported solid (`autoimplants/section.py`) |
+| `screw_pullout_min` | `min_screw_pullout_N` = 1200 | **SKIP — not a design variable.** Pull-out depends on bone quality and screw geometry, both locked planning inputs. No change to the plate moves it. |
 
 Consequences you must reason about, because they are not obvious:
 
-- **There is no FEA.** No mesh convergence data, no von Mises field, no safety factor, no
-  stiffness value. `validators/stress.py` is a placeholder that emits SKIP for all eight ids.
-- **`load_cases` in `inputs/case.json` is therefore inert** — the 2100 N axial force and
-  15 Nm bending moment are recorded for the stress model that does not exist yet. Nothing
-  applies them. They still tell you *which way the part is loaded*, which is what §3 and §5
-  are for.
+- **There is still no FEA.** No mesh convergence data, no von Mises field, no stiffness
+  value. What `validators/stress.py` now runs is beam theory over cross-sections measured
+  off the exported solid by ray casting (`autoimplants/section.py`): area, second moment
+  and extreme-fibre distance at every station, plus a Heywood `Kt` at each hole. It is a
+  reduced-order surrogate and says so — but it is measured, not asserted, and it responds
+  to ribs, thickness profiles and slots because it reads the geometry rather than the
+  parameters.
+- **`load_cases` in `inputs/case.json` is live.** The 2100 N axial force and 15 Nm bending
+  moment are applied: the moment peaks over mid-footprint and tapers to the outermost
+  screws, on the assumption that the plate bridges the fracture and load re-enters the bone
+  through the end screws. The plate is assumed to carry the moment alone, with no load
+  sharing — conservative for a bridging plate, badly wrong for an intact shaft.
+- **Read `validators/stress.py`'s docstring before trusting a number from it.** The four
+  modelling assumptions are listed there, and they are the first thing anyone will ask
+  about.
 - **The stiffness window and the printability checks described elsewhere in this file do not
   exist here.** Treat them as design guidance, not as gates.
 - The failure you are being asked to fix is therefore **geometric**: the plate does not
@@ -382,9 +391,10 @@ Consequences you must reason about, because they are not obvious:
 
 ## 7. Reading the FEA result correctly
 
-> **Not applicable on this case — read it anyway, once.** There is no FEA in this
-> repository: every stress check returns SKIP (§6). So there is no hotspot to locate, no
-> `mesh_convergence` block to read, and nothing here changes what you should do next. The
+> **Partly applicable — read it anyway, once.** There is no FEA in this repository: the
+> stress checks are beam theory over measured sections (§6), not a solved field. So there is
+> no hotspot to locate and no `mesh_convergence` block to read, though the stress numbers
+> themselves are now live. The
 > section is retained because the reasoning below is why the stress thresholds are shaped the
 > way they are, and because it must not be mistaken for a description of live behaviour. In
 > particular, the claim that "the verifier already excludes elements within 1–2 element

@@ -1,5 +1,40 @@
 # Real CT Support Implementation Plan
 
+## Status: implemented
+
+All ten subtasks shipped. See `docs/real-ct-cases.md` for the resulting usage
+documentation. Four things were done differently from the plan below, each for a
+reason found during implementation:
+
+1. **Output goes to `real_cases/<case_id>/generated/`, not `inputs/`.**
+   `harness/guard.py` locks `inputs/*` as system-controlled, so a case imported
+   there would read as a guard violation on the agent's own diff.
+2. **The coordinate frame is transformed, not merely validated.** Subtask 4 said
+   reject a case whose frame is wrong. Every real segmentation arrives in scanner
+   coordinates, so rejection would have rejected everything; the importer now
+   computes the rigid transform from the plan's landmarks and applies it to mesh,
+   screws and keepouts together, recording the matrix in `frame_transform.json`.
+3. **DICOM dependencies were split out, then folded back in on request.** They
+   add ~255 MB to every container rebuild and the design loop never imports them,
+   so they started in a separate `requirements-dicom.txt`; the team chose one
+   install step over a smaller image, so they now live in `requirements.txt` and
+   `dicom_to_mesh` imports them lazily instead. `networkx` was added there too —
+   without it trimesh's component split and hole filling are silent no-ops, which
+   are exactly the two repairs the mesh gate depends on.
+4. **A face budget and batched ray casting were added.** Not in the plan. A
+   marching-cubes femur carries 10^5-10^6 triangles, and the per-sample ray loop
+   the gap check used would have dominated every iteration.
+
+Two further notes: the mesh gate ranks components by surface area rather than
+face count (a 1.5 mm speck can carry more triangles than a coarsely tessellated
+shaft), and the plan's `.venv/bin/python` invocation is `.venv/Scripts/python.exe`
+on Windows.
+
+Generalising the gap check to sample across the plate width moved the synthetic
+baseline from 6.566 mm at the y=0 centreline to 8.596 mm at the y=6 edge lane. The
+same check still fails, so the demo thesis is unchanged; the documented figures
+were re-baselined.
+
 ## Summary
 
 Implement real-case support in three phases: first accept a real CT-derived segmented

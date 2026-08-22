@@ -10,3 +10,29 @@ requests==2.32.5
 rtree==1.4.1
 # manifold3d gives trimesh robust boolean/volume ops on our exported solids.
 manifold3d==3.5.2
+
+# networkx backs trimesh's connected-component split and hole filling. Both are
+# no-ops without it -- and both are exactly what the real-CT mesh gate needs, so
+# a missing networkx means segmentation speckle and open surfaces sail through
+# autoimplants/mesh_quality.py instead of being repaired or rejected.
+networkx==3.6.1
+
+# Test runner. Small, and the import path for real cases is only trustworthy
+# because tests/ round-trips a known pose through it.
+pytest==9.1.1
+
+# --- raw DICOM support (autoimplants/dicom_to_mesh.py) ----------------------
+# ~255 MB installed, dominated by SimpleITK and scipy. That is a real cost on
+# every container rebuild, and the design loop itself never touches DICOM -- it
+# consumes a mesh plus a surgical plan. Kept here anyway so that one `setup.sh`
+# gives every lane the same working stack, with no second install step to
+# forget. If build time ever starts hurting, this block is the first thing to
+# split back out.
+pydicom==3.0.1        # tag-level reads, used for the PHI check
+SimpleITK==2.4.1      # series loading, spacing/orientation, HU rescale
+scikit-image==0.25.2  # marching cubes
+scipy==1.15.3         # connected components, morphological closing
+
+# Enables mesh decimation in autoimplants/mesh_quality.py. Without it an
+# over-budget mesh is reported rather than reduced.
+fast-simplification==0.1.9

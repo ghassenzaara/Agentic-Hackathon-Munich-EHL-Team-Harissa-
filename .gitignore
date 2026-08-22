@@ -11,3 +11,18 @@ __pycache__/
 # generated working artifacts (runs/ IS committed — it's the demo record)
 out/
 *.step
+
+# imported real cases: derived from a mesh + plan, regenerable, and the source
+# data is never committed. real_cases/example/ IS committed -- it is synthetic.
+real_cases/*/generated/
+out_*/
+
+# patient imaging must never enter this repository
+*.dcm
+*.dcm.gz
+
+# The synthetic CT phantom is ~27 MB and regenerates in seconds from
+# real_cases/synthetic_ct/make_ct.py. Only the generator is committed.
+real_cases/synthetic_ct/series/
+real_cases/synthetic_ct/bone.stl
+real_cases/synthetic_ct/ground_truth.stl

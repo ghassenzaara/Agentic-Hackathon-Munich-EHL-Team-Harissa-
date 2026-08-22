@@ -17,6 +17,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import case_io
 from .contracts import Report
 from .params import check_params, default_params
 from .validators import REGISTRY, run_all
@@ -38,11 +39,17 @@ _FALLBACK_CASE = {
 
 
 def load_case(path: str | Path) -> dict:
+    """Load the case and make it the active one.
+
+    Registering it with case_io is what lets the generator -- whose signature is
+    frozen and never sees the case -- resolve the right screw file for an
+    imported real case instead of always reading inputs/.
+    """
     p = Path(path)
     if not p.exists():
         print(f"[warn] {p} not found -- using built-in fallback case", file=sys.stderr)
-        return dict(_FALLBACK_CASE)
-    return json.loads(p.read_text(encoding="utf-8"))
+        return case_io.set_active_case(dict(_FALLBACK_CASE))
+    return case_io.set_active_case(case_io.load_case(p), p)
 
 
 def load_params(path: str | None) -> dict:
