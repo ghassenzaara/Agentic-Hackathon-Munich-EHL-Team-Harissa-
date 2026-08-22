@@ -43,6 +43,7 @@ python -m autoimplants.run --validators stub --no-build   # zero dependencies, f
 python inputs/make_bone.py                               # regenerate the anatomy (deterministic)
 python -m harness.smoke --dry-run                        # print the Devin prompt, no API key needed
 python -m harness.guard <base-sha>                       # did Devin only touch the design surface?
+python -m harness.design_space                           # prove no scalar tweak can pass (~3 min)
 ```
 
 ## The loop
@@ -70,8 +71,27 @@ generate (CadQuery) → export STL/STEP → geometry validator → [pass?]
 | `autoimplants/validators/` | `validate(implant_path, case) -> Report`. Geometry runs first, then stress. |
 | `autoimplants/bone.py` | Bone surface sampling, shared by generator and validator so they cannot disagree. |
 | `inputs/` | Locked: anatomy, surgical plan, keepout zones, thresholds. |
-| `harness/` | Devin API client, smoke test, locked-file guard, loop. |
+| `harness/` | Devin API client, smoke test, locked-file guard, loop, design-space proof. |
 | `runs/` | Committed per-iteration artefacts — the demo record. |
+
+## What the validators measure
+
+Geometry is hard fact about the exported STL: manifoldness, envelope, minimum
+wall, mass, bone collision, residual bone gap, screw bores, keepout zones.
+
+Stress is a reduced-order analytical surrogate — beam theory, not FEA — and every
+section property it uses is **measured off the same STL by ray casting**, so a
+rib or a thickness profile shows up in the stress result because the part
+changed, not because a parameter told the model about it:
+
+| Check | Model |
+|---|---|
+| `stress_max_bending` | Euler-Bernoulli about the plate width axis. The plate bridges the defect, so the moment peaks at mid-footprint and falls to zero at the end screws; the plate carries 57% of the 15 Nm gait moment and 35% of the 2100 N stance load. |
+| `stress_hole_N` | Net-section stress at each screw, raised by a plate-bending Kt: 1.40 for a round hole, 1.10 for an axial slot. Whether a hole is a slot is *measured* from the void's aspect ratio, not declared. |
+| `screw_pullout_min` | Thread shear over the engaged cortex, and standoff eats engagement — every millimetre of gap is a millimetre of screw not in bone, which is why conformance and fixation fail together. |
+
+Baseline flat plate: 414 MPa peak bending against a 350 MPa allowable, 580 MPa at
+the two inner holes, 910 N of pull-out against 1200 N.
 
 ## Why this is not just an optimiser
 
@@ -92,7 +112,17 @@ The generator enforces this directly: `build_implant()` raises
 `NotImplementedError` if a topology parameter is set without the geometry behind
 it. Setting `ribs=[...]` and hoping is not a valid move.
 
-See `design_space_note` in `inputs/case.json` before recalibrating anything.
+This is checked rather than asserted. `harness/design_space.py` sweeps thickness
+× width × length across and past every scalar limit, builds all 84 parts, runs
+the real validators, and exits non-zero if any scalar-only design passes:
+
+```bash
+python -m harness.design_space
+# Property holds: all 84 scalar-only designs fail at least one check.
+```
+
+Run it after touching `stress.py`, `case.json` or `make_bone.py`. See
+`design_space_note` in `inputs/case.json` before recalibrating anything.
 
 ## Guardrail
 
