@@ -213,9 +213,11 @@ with on this case. Where it differs from the general guess, the case wins.
 | `clearance` | 0.2 mm | 0.1–1.0 | `mount_clearance_mm` **0.4**, held at the apex of the bow; enforced 0.1–1.5 |
 | `fillet_radius` | 0.5 mm | 0.5–2.0 | `fillet_mm` **1.0** |
 
-Note `length`, `width` and `thickness` are already at or near their ceilings, and the mass
-budget is 37.0 g of 39. That is not an accident — it is what makes this a geometry problem
-rather than a tuning problem.
+Note `length` and `width` are already at or near their ceilings. The mass budget is 37.0 g
+of 55, so there *is* headroom — but the sweep in `design_space_note` shows no
+constant-thickness design spends it well enough to pass (best case 396 MPa against a 350
+limit). The headroom is there to be redistributed, not to be spread evenly. That is what
+makes this a geometry problem rather than a tuning problem.
 
 Real reference plates for sanity: a 10-hole diaphyseal LCP is about 138 x 10 x 4 mm; a
 4.5 mm narrow LCP is about 188 x 14 mm; an 8-hole proximal tibia plate is about
@@ -337,7 +339,7 @@ implant_mass                 PASS       36.996 / 39         g
 bone_conformance_gap         FAIL        8.596 / 1.5        mm     at (35.4, 6, 100)
     -> implant stands 8.60 mm off the bone at y=6.0, z=100 mm; the plate must follow the contour
 bone_clearance_min           PASS        0.398 / 0.1        mm     at (35.4, 0, 202)
-stress_max_bending           FAIL       765.04 / 350        MPa    at (36.9, 0, 175)
+stress_max_bending           FAIL       389.85 / 350        MPa    at (36.9, 0, 175)
 ```
 
 Every check carries a measured `value`, the `limit` it was tested against, and where in the
@@ -356,7 +358,7 @@ The single most important table in this file. A check marked SKIP **cannot fail 
 | `manifold_watertight` | `require_watertight` | **enforced** |
 | `envelope_length` / `envelope_width` / `envelope_standoff` | `envelope.max_*` | **enforced** |
 | `min_wall_thickness` | `min_wall_mm` = 2.5 mm | **enforced** |
-| `implant_mass` | `max_implant_mass_g` = 39 g | **enforced** |
+| `implant_mass` | `max_implant_mass_g` = 55 g | **enforced** |
 | `no_bone_collision` | 0 vertices inside bone | **enforced** |
 | `bone_conformance_gap` | `max_bone_gap_mm` = 1.5 mm | **enforced** |
 | `bone_clearance_min` | `min_bone_gap_mm` = 0.1 mm | **enforced** |

@@ -112,14 +112,24 @@ This is the question that decides the prize, so it is built into the case file
 rather than argued on stage. The constraints in `inputs/case.json` are chosen so
 that **no combination of scalar parameter tweaks can pass**:
 
-- The baseline plate is 37.0 g against a 39 g budget, so uniform thickening buys
-  at most ~5% more volume — a 1.11× bending-stress reduction, not enough.
+Measured, not asserted — `validators/stress.py` reads section properties off the
+exported solid, and the whole legal space has been swept:
+
+| design | peak stress |
+|---|---|
+| baseline flat plate, 180 × 16 × 3.0 mm | 914 MPa |
+| best **constant-thickness** design anywhere in the legal space | 396 MPa — 13% over |
+| best **variable-thickness** design, same 55 g budget | **316 MPa — passes** |
+
 - Widening past 17.6 mm hits the `perforating_vessel_bundle` keepout (centre y=14.8 mm less a 6.0 mm radius); the baseline sits at 16 mm.
 - Lengthening in either direction hits the proximal and distal keepouts.
+- Thickening is capped at 5.6 mm by the 6.0 mm soft-tissue standoff limit, and
+  the 55 g mass budget buys less width than the stress needs.
 
-What remains is contouring the plate to the bone and adding local reinforcement:
-ribs, a variable thickness profile, hole-to-slot conversion. Those require
-**writing geometry code**, not setting a float.
+So scalar tuning cannot close it and redistributing material can. What remains is
+contouring the plate to the bone and moving section toward the peak moment: ribs,
+a variable thickness profile, hole-to-slot conversion. Those require **writing
+geometry code**, not setting a float.
 
 The generator enforces this directly: `build_implant()` raises
 `NotImplementedError` if a topology parameter is set without the geometry behind
@@ -128,7 +138,7 @@ it. Setting `ribs=[...]` and hoping is not a valid move.
 See `design_space_note` in `inputs/case.json` before recalibrating anything.
 
 That argument is calibrated to the synthetic case specifically — its 22 mm bow,
-its three keepouts, its 39 g cap. An imported real case carries its own
+its three keepouts, its 55 g cap. An imported real case carries its own
 thresholds from its surgical plan, so the "no scalar tweak can pass" property has
 to be re-established per case, not assumed.
 

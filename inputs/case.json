@@ -37,9 +37,10 @@
     {
       "id": "gait_bending",
       "type": "bending",
-      "moment_Nm": 15.0,
+      "moment_Nm": 7.0,
       "axis": "medio-lateral",
-      "basis": "peak diaphyseal bending moment during level gait"
+      "basis": "protected weight-bearing during early healing, ~47% of the ~15 Nm peak diaphyseal bending moment of unrestricted level gait. A plated femur is not walked on unrestricted: partial weight-bearing is the standard post-operative protocol while the fracture consolidates, and the plate is sized for that period. Applied to the plate alone, with no load sharing with the bone -- conservative for a plate bridging a fracture gap.",
+      "axis_note": "The moment vector is medio-lateral, so bending occurs in the sagittal plane. validators/stress.py computes both bending planes and reports the worse, because this frame calls +X both lateral (case, generator) and anterior (make_bone bow), and those cannot both be true."
     }
   ],
 
@@ -49,7 +50,7 @@
     "max_bone_gap_mm": 1.5,
     "min_bone_gap_mm": 0.1,
     "min_screw_pullout_N": 1200.0,
-    "max_implant_mass_g": 39.0,
+    "max_implant_mass_g": 55.0,
     "max_keepout_encroach_mm": 0.0,
     "require_watertight": true,
     "require_all_screws": 6
@@ -58,10 +59,11 @@
   "threshold_notes": {
     "min_bone_gap_mm": "Lower bound on the plate-bone gap. Pressing a plate onto bone crushes the periosteum and interrupts the blood supply the fracture heals through, so zero clearance is a failure and not an optimum. This is why limited-contact plate designs exist.",
     "max_keepout_encroach_mm": "Renamed from max_keepout_violation_mm3: the check measures a linear encroachment in mm, not a volume in mm^3, and the old name never matched the units.",
-    "unenforced": "max_stress_MPa and min_screw_pullout_N are read only to populate limits -- every stress check returns SKIP until validators/stress.py is real. load_cases below is consumed by nothing for the same reason. See the enforced-checks table in DOMAIN_KNOWLEDGE.md section 6."
+    "enforced": "max_stress_MPa is enforced: validators/stress.py measures section properties off the exported solid (autoimplants/section.py) and applies load_cases, so load_cases is live. See the enforced-checks table in DOMAIN_KNOWLEDGE.md section 6.",
+    "unenforced": "min_screw_pullout_N is read only to populate a limit. Pull-out depends on bone quality and screw geometry, both locked surgical planning inputs -- no change to the plate can move it, so screw_pullout_min reports SKIP rather than a number that could never drive the loop."
   },
 
-  "design_space_note": "READ THIS BEFORE CALIBRATING THE STRESS MODEL. The constraints above are chosen so that no combination of scalar parameter tweaks can pass. Baseline plate: 180 x 16 x 3.0 mm minus six 4.5 mm holes = 8354 mm^3 = 37.0 g. The 39.0 g mass cap therefore allows only ~+5% volume, i.e. uniform thickening to at most ~3.16 mm, which reduces bending stress by only (3.16/3.0)^2 = 1.11x -- not enough to bring 412 MPa under 350. NOTE: that 412 MPa currently comes only from validators/stub.py; the real stress validator returns SKIP for every check, so the stress half of this argument is sound engineering but is not yet measured by anything. Widening is blocked by the perforating_vessel_bundle keepout at 17.6 mm (zone centre y=14.8 mm minus its 6.0 mm radius), which is why the baseline sits at 16 mm. Lengthening is blocked by the proximal and distal keepouts. What is left is contouring the plate to the bone (fixes conformance) and adding local reinforcement -- ribs, a variable thickness profile, hole-to-slot conversion (fixes stress). That is the difference between an optimiser and an engineer, and it is designed into the case rather than hoped for at demo time. If the stress model is recalibrated, re-check that uniform thickening still fails.",
+  "design_space_note": "READ THIS BEFORE CHANGING ANY THRESHOLD. The constraints above are chosen so that no combination of scalar parameter tweaks can pass, and that property is now measured rather than asserted -- validators/stress.py runs beam theory over cross-sections read off the exported solid. Three numbers define the window, all swept over the full legal space (width to the 17.6 mm keepout limit, thickness to the 5.6 mm the 6.0 mm standoff cap allows, mass to 55 g): the baseline 180 x 16 x 3.0 mm plate peaks at 914 MPa; the best CONSTANT-thickness design anywhere in that space still fails at 396 MPa, 13% over the 350 MPa allowable; a variable-thickness design within the same 55 g passes at 316 MPa. So scalar tuning cannot close it and redistributing material can, which is exactly the intended lesson. The window is narrow: at 50 g even a variable-thickness design fails, and at 60 g a plain constant-thickness plate passes outright and the argument collapses. The mass cap and the gait moment are therefore a matched pair -- change one and re-run the sweep. Widening is blocked by the perforating_vessel_bundle keepout at 17.6 mm (zone centre y=14.8 mm minus its 6.0 mm radius). Lengthening is blocked by the proximal and distal keepouts. What is left is contouring the plate to the bone (fixes conformance) and redistributing section toward the peak moment (fixes stress). HISTORY: this note previously argued from a 412 MPa figure produced by validators/stub.py while the real stress validator returned SKIP. Measured honestly at the old 39 g / 15 Nm thresholds, the lightest design meeting 350 MPa weighed 92 g -- the case was infeasible and no design could have passed.",
 
   "iteration_budget": 8
 }
