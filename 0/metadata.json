@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0NWJJ6NX3PQG9V17BZPW731",
+  "session_id": "01a02b9a-da2e-7ac0-9c7a-9e695e76ce8b",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-22T23:23:31.8828434Z",
+  "branch": "finalize",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    ".env.example",
+    "DEVIN.md",
+    "DOMAIN_KNOWLEDGE.md",
+    "README.md",
+    "devin-api-setup.md",
+    "devin-challenge-alignment-note.md",
+    "docs/planning/implementation-plan.md",
+    "docs/planning/real-ct-support-plan.md",
+    "harness/devin_client.py",
+    "harness/guard.py",
+    "harness/loop.py",
+    "harness/smoke.py",
+    "pixi.toml",
+    "real_cases/synthetic_ct/surgical_plan.json",
+    "resources.md",
+    "solution_code/verify/loadcases.py",
+    "src/README.md",
+    "src/environment.yml",
+    "src/fetch/install_calculix.sh",
+    "src/requirements.txt",
+    "suggested_plan.md",
+    "tests/test_devin_client.py",
+    "tests/test_guard.py",
+    "tests/test_surgical_plan.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "3ffc6cfe300b",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 212536,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 15881083,
+    "output_tokens": 60962,
+    "api_call_count": 127
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-22T23:23:31.7150977Z",
+    "agent_lines": 0,
+    "agent_removed": 236,
+    "human_added": 0,
+    "human_modified": 913,
+    "human_removed": 1017,
+    "total_committed": 991,
+    "total_lines_changed": 2166,
+    "agent_percentage": 10.895660203139428,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 464,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "auto-mode-classifier-error.txt": 464
+      }
+    }
+  ]
+}
