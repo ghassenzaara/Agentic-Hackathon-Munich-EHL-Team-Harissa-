@@ -1,16 +1,9 @@
-"""Loop orchestration. SKELETON -- owner C, expected to be rewritten.
+"""Autonomous loop orchestration for the AutoImplants design surface.
 
-Wired end to end so the shape is agreed, but the per-iteration policy is not
-finished. What it does today: build the prompt from the current report, start a
-Devin session, wait, run the locked-file guard on whatever Devin committed, then
-re-validate and go again.
-
-One decision is deliberately still open (see the plan): whether Devin runs the
-validators in its own container, or the harness runs them locally and feeds the
-report in. This file assumes the former -- Devin checks its own work, which is
-what the challenge brief asks for -- and re-validates locally afterwards as an
-independent check. If CadQuery turns out not to install in Devin's container,
-invert it: run locally and pass the report through the prompt only.
+Each iteration validates locally, asks Devin to address the structured failures,
+requires a committed structured result, applies the locked-file guard to the
+pushed branch, and independently re-validates that exact commit. Iteration and
+ACU caps bound both runtime and cost.
 """
 
 from __future__ import annotations
@@ -99,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="harness.loop", description=__doc__)
     ap.add_argument("--max-iterations", type=int, default=_iteration_budget())
     ap.add_argument("--branch", default="devin/design")
-    ap.add_argument("--acu-limit", type=int, default=30)
+    ap.add_argument("--acu-limit", type=int, default=5)
     ap.add_argument("--dry-run", action="store_true", help="print iteration 1's prompt and exit")
     args = ap.parse_args(argv)
 
@@ -133,6 +126,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n=== iteration {iteration} -> {created.get('url')}")
 
         final = client.wait(created["session_id"])
+        if final.get("_timed_out"):
+            print(f"Devin session timed out while {client.status_label(final)}; stopping safely.")
+            return 4
+        if not (final.get("structured_output") or {}):
+            print(
+                f"Devin stopped at {client.status_label(final)} without structured output; "
+                "open the session URL before resuming."
+            )
+            return 4
         out = final.get("structured_output") or {}
 
         if out.get("infeasible"):

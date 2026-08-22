@@ -22,6 +22,20 @@ OBLIQUE /= np.linalg.norm(OBLIQUE)
 HOLE_D_MM = 4.5
 
 
+def test_contains_is_batched_to_bound_ct_mesh_memory():
+    calls = []
+
+    class Container:
+        def contains(self, points):
+            calls.append(len(points))
+            return np.ones(len(points), dtype=bool)
+
+    result = geometry._contains_batched(Container(), np.zeros((70, 3)), batch_size=32)
+
+    assert result.all()
+    assert calls == [32, 32, 6]
+
+
 def _plate_with_bore(direction: np.ndarray, tmp_path):
     """A plate with one clean bore along ``direction`` through its centre."""
     plate = trimesh.creation.box(extents=(6.0, 20.0, 60.0))

@@ -1,59 +1,41 @@
-# secrets
+# Secrets
 .env
 .env.local
 *.key
 
-# data + run outputs
-data/
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.test-tmp/
+
+# Generated design and solver artifacts. runs/ is intentionally NOT ignored:
+# it is the auditable per-iteration record that Devin is allowed to commit.
 out/
-runs/
-*.stl
+out_*/
 *.step
 *.inp
 *.frd
 *.dat
 *.gcode
 
-# python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-
-# pixi: the solved env is a build artifact, the lockfile is NOT --
-# pixi.lock is what makes the toolchain reproducible on the Devin machine.
+# Downloaded datasets and materialized pixi environment
+data/
+src/data/
 .pixi/
 
-# os
-.DS_Store
-
-# personal scratch, not for submission
-my_comments.md
-# secrets — first line for a reason
-.env
-.env.local
-
-# python
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-
-# generated working artifacts (runs/ IS committed — it's the demo record)
-out/
-*.step
-
-# imported real cases: derived from a mesh + plan, regenerable, and the source
-# data is never committed. real_cases/example/ IS committed -- it is synthetic.
+# Imported cases are regenerated from a mesh plus surgical plan.
 real_cases/*/generated/
-out_*/
 
-# patient imaging must never enter this repository
+# Patient imaging must never enter this repository.
 *.dcm
 *.dcm.gz
-
-# The synthetic CT phantom is ~27 MB and regenerates in seconds from
-# real_cases/synthetic_ct/make_ct.py. Only the generator is committed.
 real_cases/synthetic_ct/series/
 real_cases/synthetic_ct/bone.stl
 real_cases/synthetic_ct/ground_truth.stl
+
+# OS and personal scratch
+.DS_Store
+my_comments.md

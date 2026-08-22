@@ -25,19 +25,6 @@ from .validators import REGISTRY, run_all
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CASE = REPO_ROOT / "inputs" / "case.json"
 
-# Used only when inputs/case.json does not exist yet, so the stub path works
-# from the very first minute of the hackathon.
-_FALLBACK_CASE = {
-    "case_id": "FALLBACK",
-    "thresholds": {
-        "max_stress_MPa": 350.0,
-        "min_wall_mm": 2.5,
-        "max_bone_gap_mm": 1.5,
-        "min_bone_gap_mm": 0.1,
-    },
-}
-
-
 def load_case(path: str | Path) -> dict:
     """Load the case and make it the active one.
 
@@ -47,8 +34,7 @@ def load_case(path: str | Path) -> dict:
     """
     p = Path(path)
     if not p.exists():
-        print(f"[warn] {p} not found -- using built-in fallback case", file=sys.stderr)
-        return case_io.set_active_case(dict(_FALLBACK_CASE))
+        raise FileNotFoundError(f"case file not found: {p}")
     return case_io.set_active_case(case_io.load_case(p), p)
 
 
@@ -86,7 +72,11 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    case = load_case(args.case)
+    try:
+        case = load_case(args.case)
+    except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
+        print(f"[fatal] could not load case: {exc}", file=sys.stderr)
+        return 2
     params = load_params(args.params)
 
     names = tuple(sorted(REGISTRY)) if args.validators == "all" else tuple(

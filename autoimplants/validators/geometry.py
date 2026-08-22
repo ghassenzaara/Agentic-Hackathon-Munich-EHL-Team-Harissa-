@@ -249,9 +249,25 @@ def check_mass(mesh, case: dict) -> Check:
     )
 
 
+def _contains_batched(container, points: np.ndarray, batch_size: int = 32) -> np.ndarray:
+    """Call trimesh containment without a CT-mesh-sized temporary allocation.
+
+    trimesh's triangle ray implementation can allocate hundreds of megabytes
+    when thousands of implant vertices are tested against a dense CT surface in
+    one call. Small batches keep peak memory bounded. This also avoids a native
+    MemoryError turning an otherwise valid imported case into geometry_crashed.
+    """
+    points = np.asarray(points, dtype=float)
+    inside = np.zeros(len(points), dtype=bool)
+    for start in range(0, len(points), batch_size):
+        stop = min(start + batch_size, len(points))
+        inside[start:stop] = container.contains(points[start:stop])
+    return inside
+
+
 def check_bone_collision(mesh, case: dict) -> Check:
     bone = _bone(case)
-    inside = bone.contains(mesh.vertices)
+    inside = _contains_batched(bone, mesh.vertices)
     n_inside = int(inside.sum())
     loc = None
     if n_inside:

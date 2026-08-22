@@ -1,254 +1,252 @@
-# ehl-munich-august-2026
-
-Cognition "Devin for X" track — an autonomous layer for patient-specific
-orthopedic implants (tibial fixation plates).
-
-![X-rays of a fractured tibia repaired with metal fixation plates and screws, front and side views](artifacts/tibial_fixation_plate.png)
-
-*A broken shin bone, front (a) and side (b). The metal screwed along the bone to hold the fragments in place while
-they heal is the **fixation plate**. 
-
-Today an engineer shapes each one by hand from a CT
-scan, over weeks. That is the bottleneck.*
-
-## Repository structure
-
-```
-.
-├── README.md                          this file
-├── LICENSE
-│
-├── devin-challenge-brief.md           the pitch: domain, verdict engine, autonomy story, risks
-├── devin-challenge-alignment-note.md  gap analysis of the brief vs. the track requirements
-├── resources.md                       datasets + software the build needs, and their status
-├── devin-api-setup.md                 Devin v3 API contract, credential handling (key pending)
-│
-├── .env.example                       config template — copy to .env, never commit .env
-├── .gitignore
-│
-├── pixi.toml                          the environment: toolchain + ccx solver + tasks
-├── pixi.lock                          cross-platform lock (osx-arm64 + linux-64) — commit this
-├── src/                               resources, fetch scripts, SSM loader (see src/README.md)
-│
-├── artifacts/
-│   ├── image.png                      the track brief slide
-│   └── tibial_fixation_plate.png      post-op X-rays, used in this README
-│
-├── skills-lock.json                   pinned Entire skill versions
-├── .agents/skills/                    Entire agent skills (canonical copies, 12 skills)
-├── .claude/
-│   ├── settings.json
-│   └── skills/                        symlinks into ../../.agents/skills/
-├── .codex/
-│   └── hooks.json                     Codex session hooks
-├── agent/skills/                      Entire agent skills (generic-agent copy, 12 skills)
-└── .entire/                           Entire session tracking (logs + metadata, gitignored)
-    ├── .gitignore
-    └── settings.json
-```
-
-## Getting set up
-
-```bash
-pixi install          # toolchain + CalculiX solver, from the lockfile
-pixi run setup        # verify it, fetch the anatomy data, sample 5 unseen tibias
-```
-
-`pixi.lock` pins both `osx-arm64` (laptops) and `linux-64` (the Devin machine
-snapshot, `DEVIN_SNAPSHOT_ID` in [.env.example](.env.example)), so the agent
-solves against the same toolchain we develop against. Details and the one
-deliberate version bump are in [pixi.toml](pixi.toml); resource status is in
-[src/README.md](src/README.md).
-
-The anatomy data is not committed. `pixi run setup` downloads it, or
-`pixi run fetch-ssm` on its own (~550 MB, md5-checked, safe to re-run) into
-gitignored `src/data/`; `pixi run fetch-ts` adds the optional CT mask set. Which
-sources we picked, which ones failed to deliver, and why, is in
-[resources.md](resources.md).
-
-The design loop itself is not built yet, and the Devin API key is still to be
-provided; see [devin-api-setup.md](devin-api-setup.md).
 # AutoImplants
 
-Devin as an autonomous biomedical engineer. Given a bone mesh and engineering
-constraints, Devin edits a parametric CAD generator, our validators score the
-exported solid, Devin reads the structured failures, fixes the generator, and
-repeats until the design passes — with a committed engineering rationale at every
-step.
+An autonomous engineering loop for patient-specific orthopedic fixation plates,
+built for the Cognition/Devin track at the TUM.ai Munich Agentic Hackathon.
 
-Built for the Cognition/Devin track, Munich Agentic Hackathon (TUM.ai), Aug 2026.
+The working demo takes a bone mesh and surgical constraints, generates a
+CadQuery implant, exports STEP and STL, runs geometry and reduced-order stress
+checks, and produces a structured report. Devin can read that report, edit the
+small allowed design surface, commit its engineering rationale, and repeat.
 
-## Scope
+> Research prototype only. It is not a clinical device or a substitute for
+> surgical planning, verification, validation, or regulatory review.
 
-Stated once, honestly:
+## What is working
 
-- Segmentation, surgical planning and landmark identification are **precomputed
-  inputs**, not part of the demo.
-- Physics is a **reduced-order analytical surrogate**, not clinical FEA.
-- One bone, one plate, one load case. No fatigue, no multi-material, no contact
-  mechanics.
-- **Not a clinical device.** Synthetic demo by default; a real CT-derived mesh is
-  supported through the importer. No FDA/ISO/ASTM claim either way.
+- Parametric implant generation and STEP/STL export.
+- Geometry, fit, keepout, screw-path, mass, and analytical stress checks.
+- Synthetic femur demo plus mesh/surgical-plan import for external cases.
+- DICOM-to-mesh ingestion for the synthetic CT fixture.
+- A self-contained offline HTML review page.
+- Guarded Devin smoke test and iterative design harness.
+- An automated regression suite covering the runnable path and API client.
+
+The repository also retains the team's higher-fidelity CalculiX/gmsh work in
+`solution_code/`, with its data/toolchain setup in `src/` and `pixi.toml`.
+That is an experimental verifier scaffold, not the acceptance path used by the
+demo. It is deliberately not presented as clinical FEA or silently mixed into
+the validated analytical report.
 
 ## Quick start
 
+Python 3.12 is required because the CadQuery/OCP stack is pinned for it.
+
+Windows PowerShell:
+
+```powershell
+.\setup.ps1
+$py = ".\.venv\Scripts\python.exe"
+```
+
+Linux, macOS, WSL, or Git Bash:
+
 ```bash
 bash setup.sh
+PY=.venv/bin/python
+[ -x "$PY" ] || PY=.venv/Scripts/python.exe
 ```
 
-Then check the baseline design:
+Run one complete baseline iteration:
+
+```powershell
+& $py -m autoimplants.run --validators geometry,stress
+```
 
 ```bash
-.venv/bin/python -m autoimplants.run --validators geometry,stress
+$PY -m autoimplants.run --validators geometry,stress
 ```
 
-On Windows the interpreter is `.venv/Scripts/python.exe`.
+The baseline intentionally exits with code `1`. It is a generic flat plate
+that should fail bone conformance and stress checks; that structured failure is
+the starting signal for the autonomous design loop. A crash or missing artifact
+is a real failure. A report that says `FAIL` is the expected baseline result.
 
-Exit code is 0 when the design passes and 1 when it fails, so the loop and Devin
-can both branch on `$?`.
+The command writes:
 
-Other useful entry points:
+- `out/implant.step` — CAD deliverable;
+- `out/implant.stl` — measured validation mesh;
+- `out/report.json` — machine-readable verdict.
+
+Build the offline review page:
+
+```powershell
+& $py -m autoimplants.viewer
+Start-Process .\out\viewer.html
+```
 
 ```bash
-python -m autoimplants.run --validators stub --no-build   # zero dependencies, fake failing report
-python inputs/make_bone.py                               # regenerate the anatomy (deterministic)
-python -m harness.smoke --dry-run                        # print the Devin prompt, no API key needed
-python -m harness.guard <base-sha>                       # did Devin only touch the design surface?
-python -m pytest tests -q                                # the suite
+$PY -m autoimplants.viewer
+# open out/viewer.html in a browser
 ```
 
-## Real CT cases
+## Verify the project
 
-The synthetic femur is the default. A bone segmented from real CT imaging runs
-through the same loop, via an importer that takes the mesh plus an external
-surgical plan:
+```powershell
+& $py -m harness.test_all
+```
+
+On Linux/macOS, direct pytest is also available:
 
 ```bash
-python -m autoimplants.import_case     --case real_cases/<case_id>/surgical_plan.json     --bone real_cases/<case_id>/bone.stl
-
-python -m autoimplants.run     --case real_cases/<case_id>/generated/case.json --validators geometry,stress
+$PY -m pytest -q
 ```
 
-The importer recovers the repo frame from the plan's landmarks — real
-segmentations arrive in scanner coordinates, obliquely angled — gates the mesh
-for scale, islands and watertightness, and checks the plan against the actual
-bone before writing anything. Raw DICOM is a separate phase-2 command,
-`autoimplants.dicom_to_mesh`, with its own optional dependencies.
+The grouped runner is the portable default. It uses a workspace-local temp
+directory and keeps the SimpleITK imaging runtime out of the OpenCASCADE CAD
+process; some Windows builds otherwise access-violate during interpreter
+shutdown after printing a fully passing pytest result.
 
-Nothing is invented: a plan missing screws or landmarks is rejected by name.
+Useful fast checks:
 
-**See [docs/real-ct-cases.md](docs/real-ct-cases.md)** for the full sequence, the
-plan schema, and the patient-data rules.
-
-## The loop
-
-```
-generate (CadQuery) → export STEP (deliverable) + STL (measured) → geometry validator → [pass?]
-                                              ↓ fail
-                                    surrogate stress validator → [pass?]
-                                              ↓ fail
-                                       structured Report (JSON)
-                                              ↓
-                              Devin session: read Report, edit generator.py
-                                              ↓
-                                git commit with engineering rationale
-                                              ↓
-                                    (repeat, capped by iteration_budget)
+```powershell
+& $py -m autoimplants.run --validators stub --no-build
+& $py -m harness.smoke --dry-run
 ```
 
-## Layout
+## Run the Devin path
 
-| Path | What it is |
+The client uses the current organization-scoped Devin v3 API and can still use
+legacy v1 when explicitly configured.
+
+1. Copy `.env.example` to `.env`.
+2. Add the `cog_...` service-user key and `org_...` organization ID.
+3. Give the service user session permissions and keep the ACU cap small first.
+4. Prove cloning, setup, validation, commit, and push with the smoke test.
+
+```powershell
+Copy-Item .env.example .env
+# edit .env, then:
+& $py -m harness.smoke --acu-limit 5
+```
+
+Once smoke passes, start the guarded iterative loop:
+
+```powershell
+& $py -m harness.loop --max-iterations 8 --acu-limit 5 --branch devin/design
+```
+
+The loop validates locally, starts one Devin session per failed iteration,
+requires structured output, fetches the pushed branch, rejects changes outside
+the allowlist, and independently validates the resulting commit. A timeout,
+approval pause, or missing structured result stops safely instead of scoring a
+stale checkout. See `devin-api-setup.md` for credential and RBAC details.
+
+## External mesh and surgical plan
+
+The importer accepts a mesh plus an explicit surgical plan. It recovers the
+repository frame from landmarks, gates mesh scale/components/watertightness,
+checks the plan against the bone, and writes a runnable case without inventing
+missing screws or landmarks.
+
+```powershell
+& $py -m autoimplants.import_case `
+  --case real_cases/example/surgical_plan_oblique.json `
+  --bone real_cases/example/bone.stl
+
+& $py -m autoimplants.run `
+  --case real_cases/EXAMPLE-FEMUR-CT-001-OBLIQUE/generated/case.json `
+  --validators geometry,stress `
+  --out out_real
+```
+
+Bash uses the same arguments with `\` line continuations. Full schemas and
+patient-data rules are in `docs/real-ct-cases.md`.
+
+For the committed synthetic CT phantom:
+
+```powershell
+& $py real_cases/synthetic_ct/make_ct.py
+& $py -m autoimplants.dicom_to_mesh `
+  --dicom-dir real_cases/synthetic_ct/series `
+  --bone femur `
+  --out real_cases/synthetic_ct/bone.stl
+& $py -m autoimplants.import_case `
+  --case real_cases/synthetic_ct/surgical_plan.json `
+  --bone real_cases/synthetic_ct/bone.stl
+& $py -m autoimplants.run `
+  --case real_cases/SYNTH-CT-FEMUR-001/generated/case.json `
+  --validators geometry,stress `
+  --out out_ct
+& $py -m autoimplants.viewer `
+  --case real_cases/SYNTH-CT-FEMUR-001/generated/case.json `
+  --implant out_ct/implant.stl `
+  --report out_ct/report.json `
+  --out out_ct/viewer.html
+```
+
+All DICOM and generated case artifacts are gitignored. Never add patient
+imaging to this repository. The generated flat baseline is expected to report
+`FAIL`; success here means every stage completed and produced its artifacts.
+
+## Architecture
+
+```text
+bone mesh + case + surgical plan
+              |
+              v
+   CadQuery generator.py  <--- the guarded code Devin edits
+              |
+              +--> implant.step
+              +--> implant.stl
+                        |
+                        v
+          geometry + analytical stress validators
+                        |
+                        v
+                  report.json
+                   /       \
+                  v         v
+          offline viewer   Devin iteration
+                              |
+                              v
+                    allowlist guard + recheck
+```
+
+Key paths:
+
+| Path | Purpose |
 |---|---|
-| `autoimplants/generator.py` | **The file Devin edits.** `build_implant(params) -> cq.Workplane` |
-| `autoimplants/contracts.py` | Frozen `Report`/`Check` schema. Do not change unilaterally. |
-| `autoimplants/validators/` | `validate(implant_path, case) -> Report`. Geometry runs first, then stress. |
-| `autoimplants/bone.py` | Bone surface sampling, shared by generator and validator so they cannot disagree. |
-| `inputs/` | Locked: anatomy, surgical plan, keepout zones, thresholds. |
-| `autoimplants/import_case.py` | Real mesh + surgical plan → a runnable case in the repo frame. |
-| `autoimplants/surgical_plan.py` | Plan schema, frame recovery, checks against the actual bone. |
-| `autoimplants/mesh_quality.py` | Gate for meshes arriving from outside: scale, islands, watertightness. |
-| `autoimplants/dicom_to_mesh.py` | Raw DICOM series → candidate mesh, in patient coordinates. |
-| `autoimplants/landmarks.py` | Fits the shaft axis and scaffolds a plan template from a mesh. |
-| `autoimplants/section.py` | Cross-section A, I and c, measured off the exported solid. |
-| `real_cases/` | Imported cases. Never patient data — see docs/real-ct-cases.md. |
-| `tests/` | pytest. Round-trips a known pose through the importer. |
-| `harness/` | Devin API client, smoke test, locked-file guard, loop. |
-| `runs/` | Committed per-iteration artefacts — the demo record. |
+| `autoimplants/generator.py` | Guarded parametric design surface |
+| `autoimplants/run.py` | One generate/export/validate iteration |
+| `autoimplants/validators/` | Geometry and analytical stress verdicts |
+| `autoimplants/import_case.py` | Mesh and plan to normalized runnable case |
+| `autoimplants/dicom_to_mesh.py` | Optional raw DICOM ingestion |
+| `autoimplants/viewer.py` | Self-contained review HTML generator |
+| `harness/` | Devin API client, smoke test, loop, and edit guard |
+| `inputs/` | Locked synthetic anatomy and thresholds |
+| `tests/` | Runnable path regression suite |
+| `solution_code/verify/` | Experimental gmsh/CalculiX verifier scaffold |
+| `src/` and `pixi.toml` | Optional dataset and FEA environment work |
 
-## Why this is not just an optimiser
+## Why an agent instead of scalar optimization
 
-This is the question that decides the prize, so it is built into the case file
-rather than argued on stage. The constraints in `inputs/case.json` are chosen so
-that **no combination of scalar parameter tweaks can pass**:
+The synthetic thresholds are calibrated so no legal constant-thickness scalar
+combination passes. A passing design needs a geometry/code change such as
+contouring, local section redistribution, ribs, or hole-to-slot conversion.
+`build_implant()` raises when a topology flag is set without its geometry being
+implemented, so the agent cannot pass by merely toggling a label.
 
-Measured, not asserted — `validators/stress.py` reads section properties off the
-exported solid, and the whole legal space has been swept:
+The guard is an allowlist: Devin may edit the generator/parameter/export design
+surface and write iteration records, but it may not alter anatomy, thresholds,
+validators, or the guard itself. Run `python -m harness.guard <base-sha>` to
+audit a candidate range.
 
-| design | peak stress |
-|---|---|
-| baseline flat plate, 180 × 16 × 3.0 mm | 914 MPa |
-| best **constant-thickness** design anywhere in the legal space | 396 MPa — 13% over |
-| best **variable-thickness** design, same 55 g budget | **316 MPa — passes** |
+## Optional FEA/data lane
 
-- Widening past 17.6 mm hits the `perforating_vessel_bundle` keepout (centre y=14.8 mm less a 6.0 mm radius); the baseline sits at 16 mm.
-- Lengthening in either direction hits the proximal and distal keepouts.
-- Thickening is capped at 5.6 mm by the 6.0 mm soft-tissue standoff limit, and
-  the 55 g mass budget buys less width than the stress needs.
+`pixi.toml` captures the separate gmsh/CalculiX environment assembled by the
+other prototype. Its current lock targets Linux and macOS; it is not required
+for the Windows demo above.
 
-So scalar tuning cannot close it and redistributing material can. What remains is
-contouring the plate to the bone and moving section toward the peak moment: ribs,
-a variable thickness profile, hole-to-slot conversion. Those require **writing
-geometry code**, not setting a float.
-
-The generator enforces this directly: `build_implant()` raises
-`NotImplementedError` if a topology parameter is set without the geometry behind
-it. Setting `ribs=[...]` and hoping is not a valid move.
-
-See `design_space_note` in `inputs/case.json` before recalibrating anything.
-
-That argument is calibrated to the synthetic case specifically — its 22 mm bow,
-its three keepouts, its 55 g cap. An imported real case carries its own
-thresholds from its surgical plan, so the "no scalar tweak can pass" property has
-to be re-established per case, not assumed.
-
-## Guardrail
-
-`harness/guard.py` is an allowlist, not a denylist. Devin may edit
-`generator.py`, `params.py` and `export.py`, and write into `runs/` and `out/`.
-Nothing else. A commit touching the validators, the thresholds, the anatomy or the
-bone sampler makes the iteration invalid. Anything nobody thought about defaults to
-locked — the list in `EDITABLE_GLOBS` is the whole of it.
-
-That turns "how do you know it didn't game the metric?" into a command:
+On a supported machine with pixi:
 
 ```bash
-python -m harness.guard <sha-before-devin>
+pixi install
+pixi run doctor
+# large optional download (~550 MB):
+pixi run setup
 ```
 
-## Anatomy
-
-`inputs/bone.stl` is procedurally generated by `inputs/make_bone.py` —
-deterministic, regenerable, no licence question, and byte-identical across runs.
-Morphometry follows published adult femoral literature (26 mm mid-diaphyseal
-diameter, 22 mm anterior bow ⇒ 0.91 m radius of curvature). Screw positions are
-sampled *on the generated surface* rather than hand-typed, so the validator is
-never checking the implant against numbers that do not touch the bone.
-
-That anterior bow is what makes the generic flat plate fail on this patient. The
-plate is mounted with a 0.4 mm clearance at the apex of the bow, and because it is
-straight the gap can only grow from there — 8.60 mm at the proximal end, against
-the 1.5 mm `max_bone_gap_mm` limit. That worst case is on the plate's edge, not
-its centreline: the gap is sampled across the plate width, because a shaft curves
-in both planes and a plate can seat on its centreline while standing off at its
-edges.
-
-The gap is bounded from both sides. `min_bone_gap_mm` is 0.1 mm, because a plate
-pressed onto bone crushes the periosteum and interrupts the blood supply the
-fracture heals through — zero clearance is a failure, not an optimum. That pair of
-bounds is what forces contouring: the plate cannot be pushed inward to close the
-gap without violating the floor.
-
-(Not to be confused with `envelope_standoff`, a different check with a 6.0 mm
-limit, which measures how far the plate's *outer* surface protrudes into soft
-tissue.)
+`pixi run setup` verifies the solver and downloads/samples the tibia SSM. Keep
+this lane separate from the hackathon acceptance verdict until a tested adapter
+turns the exported implant into a tetrahedral model with defensible boundary
+conditions and maps its result back into `autoimplants.contracts.Report`.
