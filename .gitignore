@@ -1,0 +1,13 @@
+# secrets — first line for a reason
+.env
+.env.local
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# generated working artifacts (runs/ IS committed — it's the demo record)
+out/
+*.step

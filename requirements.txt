@@ -1,0 +1,6 @@
+# Pinned so Devin's container and our laptops run the identical stack.
+# CadQuery has no wheels for Python 3.13+/3.14 — 3.12 is deliberate, see .python-version.
+cadquery==2.8.0
+trimesh==4.12.2
+numpy==2.2.6
+requests==2.32.5
