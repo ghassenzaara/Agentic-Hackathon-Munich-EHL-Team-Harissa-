@@ -1,0 +1,12 @@
+# Pinned so Devin's container and our laptops run the identical stack.
+# CadQuery has no wheels for Python 3.13+/3.14 -- 3.12 is deliberate, see .python-version.
+cadquery==2.8.0
+trimesh==4.12.2
+numpy==2.2.6
+requests==2.32.5
+
+# rtree backs trimesh's spatial index. Without it every ray cast raises
+# ModuleNotFoundError deep inside trimesh -- not an optional extra for us.
+rtree==1.4.1
+# manifold3d gives trimesh robust boolean/volume ops on our exported solids.
+manifold3d==3.5.2

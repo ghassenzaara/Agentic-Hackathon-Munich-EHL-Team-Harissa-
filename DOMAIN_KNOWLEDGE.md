@@ -3,22 +3,35 @@
 You are designing an orthopedic bone fixation plate. This file is everything you need
 about the domain. Read it fully before editing the generator.
 
-**Your job:** edit `generate_plate.py` so the plate it produces passes every check in the
-verifier. You may change parameter values AND the structure of the geometry code.
+**Your job:** edit `autoimplants/generator.py` so the plate it produces passes every check
+in the validators. You may change parameter values AND the structure of the geometry code.
 
-**What you may not touch:** the verifier service. Loads, boundary conditions, material
-properties and pass thresholds live outside your repo and are read-only. If a check
-fails, change the plate, never the test.
+**What you may not touch.** The validators run locally, in this repository, but they are
+**locked**: `autoimplants/validators/**`, `inputs/**` (anatomy, surgical plan, load cases,
+pass thresholds), `autoimplants/bone.py`, `autoimplants/contracts.py` and `harness/**`. You
+may edit `autoimplants/generator.py`, `autoimplants/params.py`, `autoimplants/export.py`,
+and write into `runs/` and `out/`. That allowlist is enforced mechanically by
+`harness/guard.py`, which diffs your commits after every session; touching anything else
+makes the iteration invalid. **If a check fails, change the plate, never the test.**
+
+Relaxing a threshold is not a fix. If you believe a constraint is genuinely infeasible, say
+so in the structured output and stop — do not edit your way around it.
 
 **Never stop to ask a question.** If something is ambiguous, choose, state the choice in
 your log, and continue. If you cannot converge within the iteration cap, emit the best
 candidate plus a failure report.
 
-**Integrity rules.** Never stub, mock, cache or fabricate a verifier result. Never write
-a fallback that returns a passing score when the solver errors. If the verifier is
-unreachable or the solve fails, log the failure and retry — a failed solve is data, a
-fake pass is a corrupted run. A converged design whose numbers did not come from the
-remote verifier is worthless.
+**Integrity rules.** Never stub, mock, cache or fabricate a validator result. Never write a
+fallback that returns a passing score when the run errors. If a validator crashes, log the
+failure and fix the cause — a failed run is data, a fake pass is a corrupted run. A
+converged design whose numbers did not come from an actual validator run is worthless.
+
+> **Architecture note.** An earlier draft of this file described the validators as a remote
+> service behind `POST {VERIFIER_URL}/verify`, reachable only over the network. That is not
+> how this repository is built and there is no `VERIFIER_URL`. The validators are local
+> Python modules, made tamper-evident by the git allowlist above rather than by network
+> isolation. Wherever the sections below still read as though scoring happens elsewhere,
+> §6 is the authority on how you actually invoke it.
 
 ---
 
@@ -128,7 +141,19 @@ fracture. A lag screw generates 2000–4000 N. The plate is not the primary comp
 The plate is a swept solid, not a downloaded model. Nothing is fetched. The shape is
 derived from the patient's bone surface.
 
+> **This is the target, not the current state.** The real entry point is
+> `build_implant(params) -> cq.Workplane` in `autoimplants/generator.py`, and its signature is
+> frozen — the bone is reached through `autoimplants/bone.py` (`surface_profile`,
+> `max_surface_x`) rather than passed in, and there is no `prescription` argument (§11).
+> Today it builds a **flat** plate standing clear of the apex of the bow, which is exactly why
+> `bone_conformance_gap` fails. Turning that flat plate into the swept solid below is the job.
+> `params.py` already declares the handles for it — `contour_spline`, `thickness_profile`,
+> `ribs`, `hole_slots` — and `build_implant()` raises `NotImplementedError` if you set one
+> without writing the geometry behind it. That guard is deliberate: setting a parameter is not
+> a substitute for building the shape.
+
 ```python
+# Target shape. Adapt to build_implant(params) / autoimplants.bone, per the note above.
 def generate_plate(bone_mesh, params, prescription):
     # 1. points ON the bone, along the chosen approach surface
     pts     = sample_surface(bone_mesh, axis=long_axis,
@@ -174,16 +199,23 @@ around holes — but keep the bone-facing face flat or gently concave.
 From published finite element studies of real plates. These are iteration-one guesses,
 not targets.
 
-| Parameter | Start | Range | Notes |
+The right-hand column is what `DEFAULT_PARAMS` in `autoimplants/params.py` actually ships
+with on this case. Where it differs from the general guess, the case wins.
+
+| Parameter | General start | Range | This case |
 |---|---|---|---|
-| `length` | 140 mm | 80–190 | must span the fracture with adequate purchase both sides |
-| `width` | 12 mm | 10–14 | limited by the flat area available on the bone surface |
-| `thickness` | 3.5 mm | 3.0–5.0 | strongest lever on stiffness; capped by soft tissue |
-| `n_holes` | 8 | 6–12 | minimum 3 screws per side of the fracture |
-| `hole_spacing` | 13 mm | 10–16 | |
-| `hole_dia` | 3.5 mm | 3.5 or 4.5 | 3.5 locking, 4.5 compression |
-| `clearance` | 0.2 mm | 0.1–1.0 | gap between plate and bone |
-| `fillet_radius` | 0.5 mm | 0.5–2.0 | direct fix for stress concentration |
+| `length` | 140 mm | 80–190 | `length_mm` **180** — at the `max_length_mm` ceiling; keepouts block both ends |
+| `width` | 12 mm | 10–14 | `width_mm` **16** — broad plate; hard ceiling 17.6 mm at the vessel keepout |
+| `thickness` | 3.5 mm | 3.0–5.0 | `thickness_mm` **3.0**, bounded 2.5–4.5 |
+| `n_holes` | 8 | 6–12 | **6, fixed** — locked surgical input, not a parameter |
+| `hole_spacing` | 13 mm | 10–16 | **30 mm, fixed** — from `inputs/screw_positions.json` |
+| `hole_dia` | 3.5 mm | 3.5 or 4.5 | `hole_diameter_mm` **4.5** (compression) |
+| `clearance` | 0.2 mm | 0.1–1.0 | `mount_clearance_mm` **0.4**, held at the apex of the bow; enforced 0.1–1.5 |
+| `fillet_radius` | 0.5 mm | 0.5–2.0 | `fillet_mm` **1.0** |
+
+Note `length`, `width` and `thickness` are already at or near their ceilings, and the mass
+budget is 37.0 g of 39. That is not an accident — it is what makes this a geometry problem
+rather than a tuning problem.
 
 Real reference plates for sanity: a 10-hole diaphyseal LCP is about 138 x 10 x 4 mm; a
 4.5 mm narrow LCP is about 188 x 14 mm; an 8-hole proximal tibia plate is about
@@ -228,6 +260,16 @@ fracture** before you thin the plate. When peak stress is too high, lengthening 
 working length often reduces it more cleanly than adding material. Reach for hole
 placement before reaching for thickness.
 
+> **This lever is not available on the current case, and you should not try to use it.**
+> Two reasons. First, all six screw positions are pre-solved surgical planning input and
+> `require_all_screws` is 6 — the implant accommodates them, they do not move. Second, and
+> more fundamentally, nothing here measures stiffness (§6), so there is no quantity for a
+> working-length change to improve. Omitting a hole in this model just leaves solid material
+> where the bore was, which raises local stiffness — the opposite of the intent above.
+> Modelling this properly needs an explicit "which screws are engaged" input plus a stiffness
+> check; neither exists yet. Reach for section geometry instead: a thickness profile, a rib,
+> a contour that follows the bone.
+
 ---
 
 ## 6. What the verifier checks
@@ -254,54 +296,100 @@ plausible-looking wrong answer with no warning.
 
 ### Numeric thresholds
 
-| Quantity | Limit |
-|---|---|
-| `safety_factor` | `>= 2.5` |
-| `stiffness_N_per_mm` | `100 <= k <= 400` (band, both bounds binding) |
-| `mass_g` | `<= 40` |
-| `max_thickness_mm` | `<= 6.0` |
-| `min_clearance_mm` | `0.1 <= c <= 1.0` |
-| `overhang_deg` | `<= 45` |
-| `min_feature_mm` | `>= 0.8` |
+These are the general targets for this class of device. **This case tightens several of
+them** — `inputs/case.json` is authoritative, and the right-hand column is what you are
+actually measured against.
+
+| Quantity | General target | This case (`inputs/case.json`) |
+|---|---|---|
+| `safety_factor` | `>= 2.5` | expressed as `max_stress_MPa` 350 — 880 / 2.5 = 352, rounded down. **Same constraint, not a different one.** SKIP today |
+| `stiffness_N_per_mm` | `100 <= k <= 400` | **not implemented** — no stiffness check exists |
+| `mass_g` | `<= 40` | **39** (tighter) |
+| `max_thickness_mm` | `<= 6.0` | thickness bounded **2.5–4.5** (tighter). `max_standoff_mm` 6.0 separately caps outer protrusion |
+| clearance | `0.1 <= c <= 1.0` | **`0.1 <= c <= 1.5`** — floor as stated, ceiling relaxed to 1.5 |
+| plate width | 10–14 mm typical | **16 mm baseline, hard ceiling 17.6 mm** at the vessel keepout. This is a broad plate on a 26 mm shaft; the keepout, not soft tissue, is what binds |
+| `overhang_deg` | `<= 45` | **not implemented** |
+| `min_feature_mm` | `>= 0.8` | expressed as `min_wall_mm` **2.5** (much tighter) |
+
+Do not "correct" the safety-factor row to 2.5 or the mass row to 40. The narrower numbers
+are deliberate: see `design_space_note` in `inputs/case.json`, which shows that the mass cap
+plus the keepouts make scalar parameter tuning insufficient on purpose.
 
 Why safety factor 2.5 and not 1.0: the plate is loaded thousands of times per day and
 fails by **fatigue**, not single overload. Material has scatter, printed parts have
 defects, loads are estimates, and a patient may stumble. The margin covers all of that.
 Treat 2.5 as a floor, not a target to sit exactly on.
 
-### Verifier API
+### How you actually run the validators
 
-```
-POST {VERIFIER_URL}/verify
-body: { "step_file": <base64 or path>, "prescription": {...}, "tags": {...} }
-```
-
-Response:
-
-```json
-{
-  "passed": false,
-  "checks": [
-    {"name": "safety_factor", "passed": false, "measured": 1.42,
-     "limit": 2.5, "where": {"xyz": [14.2, 3.8, 91.5],
-                             "tag": "fillet_radius_hole_3"}},
-    {"name": "stiffness_N_per_mm", "passed": true, "measured": 271.0,
-     "limit": [100, 400], "where": null},
-    {"name": "mass_g", "passed": true, "measured": 31.4, "limit": 40, "where": null}
-  ],
-  "mesh_convergence": {"sizes_mm": [2.0, 1.0, 0.5],
-                       "peak_vm": [601.2, 618.9, 620.1]},
-  "render_urls": ["..."],
-  "solve_time_s": 24.1
-}
+```bash
+bash setup.sh                                       # first time only
+.venv/bin/python -m autoimplants.run --validators geometry,stress
 ```
 
-Always read `mesh_convergence`. If `peak_vm` is still climbing steeply at the finest
-size, the peak is mesh-dependent and probably a singularity — see §7 before acting on it.
+Exit code **0** means the design passes, **1** means it does not — branch on `$?`. The full
+report is written to `out/report.json`, and the same content is printed as a table:
+
+```
+CHECK                        STATUS      VALUE / LIMIT      UNIT
+------------------------------------------------------------------------------
+implant_mass                 PASS       36.996 / 39         g
+bone_conformance_gap         FAIL        6.566 / 1.5        mm     at (35.4, 0, 100)
+    -> implant stands 6.57 mm off the bone at z=100 mm; the plate must follow the contour
+bone_clearance_min           PASS        0.398 / 0.1        mm     at (35.4, 0, 202)
+stress_max_bending           SKIP            - / 350        MPa
+```
+
+Every check carries a measured `value`, the `limit` it was tested against, and where in the
+part it happened. **Read the locations** — they exist so you do not have to guess. Re-run
+after every change; never commit a design you have not validated.
+
+On Windows the interpreter is `.venv/Scripts/python.exe`.
+
+### What is enforced today
+
+The single most important table in this file. A check marked SKIP **cannot fail your run** —
+`SKIP` counts as OK. Do not optimise against a number nothing is measuring.
+
+| Check id | Limit source | Status |
+|---|---|---|
+| `manifold_watertight` | `require_watertight` | **enforced** |
+| `envelope_length` / `envelope_width` / `envelope_standoff` | `envelope.max_*` | **enforced** |
+| `min_wall_thickness` | `min_wall_mm` = 2.5 mm | **enforced** |
+| `implant_mass` | `max_implant_mass_g` = 39 g | **enforced** |
+| `no_bone_collision` | 0 vertices inside bone | **enforced** |
+| `bone_conformance_gap` | `max_bone_gap_mm` = 1.5 mm | **enforced** |
+| `bone_clearance_min` | `min_bone_gap_mm` = 0.1 mm | **enforced** |
+| `screw_trajectories_clear` | `require_all_screws` = 6 | **enforced** |
+| `keepout_*` (3 zones) | `max_keepout_encroach_mm` = 0 | **enforced** |
+| `stress_max_bending`, `stress_hole_0..5` | `max_stress_MPa` = 350 | **SKIP — not implemented** |
+| `screw_pullout_min` | `min_screw_pullout_N` = 1200 | **SKIP — not implemented** |
+
+Consequences you must reason about, because they are not obvious:
+
+- **There is no FEA.** No mesh convergence data, no von Mises field, no safety factor, no
+  stiffness value. `validators/stress.py` is a placeholder that emits SKIP for all eight ids.
+- **`load_cases` in `inputs/case.json` is therefore inert** — the 2100 N axial force and
+  15 Nm bending moment are recorded for the stress model that does not exist yet. Nothing
+  applies them. They still tell you *which way the part is loaded*, which is what §3 and §5
+  are for.
+- **The stiffness window and the printability checks described elsewhere in this file do not
+  exist here.** Treat them as design guidance, not as gates.
+- The failure you are being asked to fix is therefore **geometric**: the plate does not
+  follow the bone.
 
 ---
 
 ## 7. Reading the FEA result correctly
+
+> **Not applicable on this case — read it anyway, once.** There is no FEA in this
+> repository: every stress check returns SKIP (§6). So there is no hotspot to locate, no
+> `mesh_convergence` block to read, and nothing here changes what you should do next. The
+> section is retained because the reasoning below is why the stress thresholds are shaped the
+> way they are, and because it must not be mistaken for a description of live behaviour. In
+> particular, the claim that "the verifier already excludes elements within 1–2 element
+> lengths of any constrained node" describes an FEA harness that is **not wired up here** —
+> do not rely on it.
 
 **Peak stress near a fixed boundary is usually an artifact.** A perfectly rigid
 constraint is physically impossible and mathematically produces infinite stress at the
@@ -343,12 +431,14 @@ problem.
 
 ### Budget
 
-- **Iteration cap: 15 verifier calls per patient.** Wall clock cap: 40 minutes.
-- Each remote verify costs roughly 25–60 s. Local optimizer runs are cheap — use them.
-- If you have used 10 calls and no check has improved, you are stuck on a shape problem.
-  Change the geometry structurally instead of continuing to tune.
+- **Iteration cap: 8**, set by `iteration_budget` in `inputs/case.json` — the harness reads
+  it, so that file is the one number. This is an ACU cost guardrail, not a physics limit.
+- A validator run is local and takes a few seconds, so checking your work is nearly free.
+  Run it after every edit; there is no call budget on validation, only on sessions.
+- If you have used half your iterations and no check has improved, you are stuck on a shape
+  problem. Change the geometry structurally instead of continuing to tune.
 - If two consecutive iterations return identical metrics, your edit did not reach the
-  geometry. Verify the STEP file actually changed before spending another call.
+  geometry. Confirm the exported solid actually changed before spending another iteration.
 
 Log every iteration in `iterations.json`: iteration number, what changed, why, the full
 returned metrics, and whether it was a shape edit or an optimizer run. The log is a
@@ -365,10 +455,14 @@ deliverable, not debug output.
   Reduce sample point count, smooth the spline, or narrow the section.
 - **Fillet failures** mean the radius exceeds the local wall thickness. Fillet radius must
   stay below roughly half the minimum adjacent thickness.
-- **Export STEP, not STL,** for the verifier. STL loses the curved surfaces and meshes
-  badly.
-- **Tag your geometry.** When you create a face, record which parameter produced it. The
-  verifier maps a hotspot back to `fillet_radius_hole_3` through those tags. Untagged
+- **Export both, and keep STEP as the deliverable.** `autoimplants/export.py` already does
+  this. STEP carries the real curved surfaces; the STL is what the geometric checks measure,
+  because ray casts and volume queries need a mesh. Its tolerance is set tight enough that
+  faceting cannot fail a threshold on its own — so do not "fix" a check by loosening it.
+- **Tag your geometry** *(not yet supported — `Check` carries an `[x, y, z]` location but no
+  parameter tag; skip this until the schema gains one).* When you create a face, record which
+  parameter produced it. The verifier maps a hotspot back to `fillet_radius_hole_3` through
+  those tags. Untagged
   geometry gives you coordinates instead of actionable edits.
 
 ---
@@ -387,12 +481,21 @@ Vision on contour plots is coarse — it reliably localizes to a feature, it doe
 subtle field structure. Use renders to reason about WHY; use the geometry tags to know
 WHERE.
 
-Renders and local solves on your machine are advisory. Only the remote verifier's verdict
-counts.
+Renders are advisory: they tell you *why* something failed and roughly where to look. The
+verdict that counts is the one `python -m autoimplants.run` writes to `out/report.json` — the
+locked validators are the authority, and a render that looks right is not a passing run.
 
 ---
 
 ## 11. Prescription input
+
+> **Not implemented on this case.** There is no `prescription` object in this repository — no
+> `mode`, no `fracture_level`, no `fracture_type`, no `species`. The equivalent inputs are
+> fixed in `inputs/`: the footprint is `case.json`'s `footprint_z_mm` `[100, 280]`, the
+> approach is the lateral (+X) aspect, and the six screw positions are pre-solved in
+> `screw_positions.json`. So the hole-placement modes in §2 have nothing to switch on yet, and
+> the species scaling below does not apply — this is one adult human femur. Read the section
+> for the reasoning, not for fields to consume.
 
 The CT tells you where the bone is. It does not tell you what device is needed. That is a
 clinical decision supplied separately:
@@ -442,6 +545,13 @@ fracture), that is a design error to report, not a parameter to tune around.
 
 ## 12. Definition of done
 
-A run succeeds when a valid STEP file passes every check in §6 with an iteration log
-recording each change and its rationale. Ties are broken by lower mass, then by fewer
-iterations.
+A run succeeds when `python -m autoimplants.run --validators geometry,stress` exits 0, with an
+iteration log recording each change and its rationale. Ties are broken by lower mass, then by
+fewer iterations.
+
+`autoimplants/export.py` writes both formats on every build. **STEP is the deliverable** — the
+artefact a manufacturer would receive, with real curved surfaces. **The STL is the measurement
+surface**: the geometric checks are ray casts and volume queries, which need a mesh, and its
+tessellation tolerance (0.02 mm linear deflection) is set an order of magnitude tighter than
+any threshold, so faceting error alone cannot fail a check. Both must exist at the end of a
+run; if the STEP export warns, treat that as a defect to fix, not noise.

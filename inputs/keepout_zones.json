@@ -1,0 +1,38 @@
+{
+  "provenance": "SYNTHETIC -- procedurally generated, not patient data. Morphometry grounded in published adult femoral literature. No clinical or regulatory claim.",
+  "zones": [
+    {
+      "id": "perforating_vessel_bundle",
+      "type": "sphere",
+      "center_mm": [
+        34.933,
+        14.8,
+        190.0
+      ],
+      "radius_mm": 6.0,
+      "rationale": "Blocks widening the plate past 17.6 mm at mid-span."
+    },
+    {
+      "id": "proximal_neurovascular_corridor",
+      "type": "sphere",
+      "center_mm": [
+        27.38,
+        0.0,
+        85.0
+      ],
+      "radius_mm": 12.0,
+      "rationale": "Blocks extending the plate proximally past z=100."
+    },
+    {
+      "id": "distal_physeal_scar",
+      "type": "sphere",
+      "center_mm": [
+        30.036,
+        0.0,
+        300.0
+      ],
+      "radius_mm": 15.0,
+      "rationale": "Blocks extending the plate distally past z=280."
+    }
+  ]
+}
