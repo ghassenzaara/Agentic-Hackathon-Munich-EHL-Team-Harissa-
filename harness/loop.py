@@ -129,13 +129,24 @@ def main(argv: list[str] | None = None) -> int:
             print(out.get("rationale", ""))
             return 2
 
-        subprocess.run(["git", "fetch", "origin"], cwd=REPO_ROOT, check=False)
-        clean, bad = check_range(base_sha, "FETCH_HEAD")
+        subprocess.run(["git", "fetch", "origin", args.branch], cwd=REPO_ROOT, check=False)
+        remote_ref = f"origin/{args.branch}"
+        clean, bad = check_range(base_sha, remote_ref)
         if not clean:
             print("ITERATION INVALID -- locked files modified:")
             for f, reason in bad:
                 print(f"  {f}: {reason}")
             return 3
+
+        # Sync the harness's own working tree to the commit Devin actually pushed.
+        # Without this, validate_locally() below scores whatever was already
+        # checked out locally rather than Devin's real commit -- and the next
+        # iteration's base_sha would be wrong too. Force is safe here: this
+        # working tree is orchestration state, not somewhere a human edits
+        # concurrently.
+        subprocess.run(
+            ["git", "checkout", "-B", args.branch, remote_ref], cwd=REPO_ROOT, check=True
+        )
 
         history.append(
             f"iter {iteration}: {out.get('rationale', '(no rationale)')} "
