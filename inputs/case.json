@@ -1,0 +1,67 @@
+{
+  "case_id": "SYNTH-FEMUR-001",
+  "provenance": "SYNTHETIC -- fabricated engineering constraints. Ranges grounded in published femoral bone-plate literature and orthopaedic biomechanics. Surgical planning (segmentation, screw placement, load estimation) is a declared PRE-SOLVED input for this project. Not patient data. No clinical, FDA, ISO or ASTM claim.",
+
+  "inputs": {
+    "bone_mesh": "inputs/bone.stl",
+    "screw_positions": "inputs/screw_positions.json",
+    "keepout_zones": "inputs/keepout_zones.json"
+  },
+
+  "material": {
+    "name": "Ti-6Al-4V (Grade 5), annealed",
+    "youngs_modulus_GPa": 114.0,
+    "poisson_ratio": 0.34,
+    "yield_strength_MPa": 880.0,
+    "density_g_cm3": 4.43,
+    "allowable_stress_MPa": 350.0,
+    "allowable_basis": "yield 880 MPa with a safety factor of 2.5 => 352 MPa, rounded down to 350"
+  },
+
+  "envelope": {
+    "footprint_z_mm": [100.0, 280.0],
+    "aspect": "lateral (+X) femoral shaft",
+    "max_length_mm": 180.0,
+    "max_width_mm": 20.0,
+    "max_standoff_mm": 6.0,
+    "thickness_bounds_mm": { "min": 2.5, "max": 4.5 }
+  },
+
+  "load_cases": [
+    {
+      "id": "axial_stance",
+      "type": "axial",
+      "force_N": 2100.0,
+      "basis": "single-leg stance, ~3x bodyweight for a 70 kg patient"
+    },
+    {
+      "id": "gait_bending",
+      "type": "bending",
+      "moment_Nm": 15.0,
+      "axis": "medio-lateral",
+      "basis": "peak diaphyseal bending moment during level gait"
+    }
+  ],
+
+  "thresholds": {
+    "max_stress_MPa": 350.0,
+    "min_wall_mm": 2.5,
+    "max_bone_gap_mm": 1.5,
+    "min_bone_gap_mm": 0.1,
+    "min_screw_pullout_N": 1200.0,
+    "max_implant_mass_g": 39.0,
+    "max_keepout_encroach_mm": 0.0,
+    "require_watertight": true,
+    "require_all_screws": 6
+  },
+
+  "threshold_notes": {
+    "min_bone_gap_mm": "Lower bound on the plate-bone gap. Pressing a plate onto bone crushes the periosteum and interrupts the blood supply the fracture heals through, so zero clearance is a failure and not an optimum. This is why limited-contact plate designs exist.",
+    "max_keepout_encroach_mm": "Renamed from max_keepout_violation_mm3: the check measures a linear encroachment in mm, not a volume in mm^3, and the old name never matched the units.",
+    "unenforced": "max_stress_MPa and min_screw_pullout_N are read only to populate limits -- every stress check returns SKIP until validators/stress.py is real. load_cases below is consumed by nothing for the same reason. See the enforced-checks table in DOMAIN_KNOWLEDGE.md section 6."
+  },
+
+  "design_space_note": "READ THIS BEFORE CALIBRATING THE STRESS MODEL. The constraints above are chosen so that no combination of scalar parameter tweaks can pass. Baseline plate: 180 x 16 x 3.0 mm minus six 4.5 mm holes = 8354 mm^3 = 37.0 g. The 39.0 g mass cap therefore allows only ~+5% volume, i.e. uniform thickening to at most ~3.16 mm, which reduces bending stress by only (3.16/3.0)^2 = 1.11x -- not enough to bring 412 MPa under 350. NOTE: that 412 MPa currently comes only from validators/stub.py; the real stress validator returns SKIP for every check, so the stress half of this argument is sound engineering but is not yet measured by anything. Widening is blocked by the perforating_vessel_bundle keepout at 17.6 mm (zone centre y=14.8 mm minus its 6.0 mm radius), which is why the baseline sits at 16 mm. Lengthening is blocked by the proximal and distal keepouts. What is left is contouring the plate to the bone (fixes conformance) and adding local reinforcement -- ribs, a variable thickness profile, hole-to-slot conversion (fixes stress). That is the difference between an optimiser and an engineer, and it is designed into the case rather than hoped for at demo time. If the stress model is recalibrated, re-check that uniform thickening still fails.",
+
+  "iteration_budget": 8
+}
