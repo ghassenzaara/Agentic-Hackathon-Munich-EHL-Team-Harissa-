@@ -108,17 +108,19 @@ def main(argv: list[str] | None = None) -> int:
                 f"{mass:>7} {stress:>10}  {', '.join(r['failing']) or 'NONE -- PASSES'}"
             )
 
+    # Under --json stdout has to stay parseable, so the verdict goes to stderr.
+    summary = sys.stderr if args.json else sys.stdout
     passing = [r for r in rows if r["passed"]]
-    print()
+    print(file=summary)
     if passing:
-        print(f"PROPERTY BROKEN: {len(passing)} scalar-only design(s) pass every check.")
+        print(f"PROPERTY BROKEN: {len(passing)} scalar-only design(s) pass every check.", file=summary)
         for r in passing:
-            print(f"  thickness={r['thickness_mm']} width={r['width_mm']} length={r['length_mm']}")
-        print("The case is now a scalar optimisation. Re-check the thresholds and the")
-        print("stress calibration before claiming this needs an engineer.")
+            print(f"  thickness={r['thickness_mm']} width={r['width_mm']} length={r['length_mm']}", file=summary)
+        print("The case is now a scalar optimisation. Re-check the thresholds and the", file=summary)
+        print("stress calibration before claiming this needs an engineer.", file=summary)
         return 1
 
-    print(f"Property holds: all {len(rows)} scalar-only designs fail at least one check.")
+    print(f"Property holds: all {len(rows)} scalar-only designs fail at least one check.", file=summary)
     return 0
 
 
