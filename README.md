@@ -26,6 +26,10 @@ scan, over weeks. That is the bottleneck.*
 ├── .env.example                       config template — copy to .env, never commit .env
 ├── .gitignore
 │
+├── pixi.toml                          the environment: toolchain + ccx solver + tasks
+├── pixi.lock                          cross-platform lock (osx-arm64 + linux-64) — commit this
+├── src/                               resources, fetch scripts, SSM loader (see src/README.md)
+│
 ├── artifacts/
 │   ├── image.png                      the track brief slide
 │   └── tibial_fixation_plate.png      post-op X-rays, used in this README
@@ -43,5 +47,24 @@ scan, over weeks. That is the bottleneck.*
     └── settings.json
 ```
 
-Docs only so far — no implementation code yet. The Devin API key is still to be
+## Getting set up
+
+```bash
+pixi install          # toolchain + CalculiX solver, from the lockfile
+pixi run setup        # verify it, fetch the anatomy data, sample 5 unseen tibias
+```
+
+`pixi.lock` pins both `osx-arm64` (laptops) and `linux-64` (the Devin machine
+snapshot, `DEVIN_SNAPSHOT_ID` in [.env.example](.env.example)), so the agent
+solves against the same toolchain we develop against. Details and the one
+deliberate version bump are in [pixi.toml](pixi.toml); resource status is in
+[src/README.md](src/README.md).
+
+The anatomy data is not committed. `pixi run setup` downloads it, or
+`pixi run fetch-ssm` on its own (~550 MB, md5-checked, safe to re-run) into
+gitignored `src/data/`; `pixi run fetch-ts` adds the optional CT mask set. Which
+sources we picked, which ones failed to deliver, and why, is in
+[resources.md](resources.md).
+
+The design loop itself is not built yet, and the Devin API key is still to be
 provided; see [devin-api-setup.md](devin-api-setup.md).

@@ -121,3 +121,5 @@ The brief is dense and well-argued, but "Scope decisions already made" and "Know
 ## One-line framing to carry through
 
 The slide's closing line is *"Every industry has an engineering problem. Give it an engineer."* The brief's own best sentence — **"those are tools a designer drives, we're building the driver"** — is the same idea, sharper. Consider promoting it out of the risks section and into the opening.
+
+Parallelism gives it its ending: *give it an engineer* → **give it twenty, working at once, and keep the ones that pass.** The slide asks for an engineer; the answer this domain allows is a department.

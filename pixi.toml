@@ -1,0 +1,116 @@
+# Environment for the tibial-plate autonomy loop.
+#
+# Why pixi and not conda+pip: CalculiX (`ccx`) is the verdict engine and is not
+# on PyPI, so a pure uv/pyproject route can't cover it. pixi resolves conda-forge
+# and PyPI in ONE cross-platform lockfile, which is the property that matters
+# here -- the same pinned toolchain has to exist on this laptop (osx-arm64) and
+# on the Devin machine snapshot (linux-64, see DEVIN_SNAPSHOT_ID in .env.example).
+#
+# Every dependency below resolves from conda-forge, so there is no pip layer at
+# all. Supersedes src/requirements.txt + src/environment.yml, which are kept as
+# documentation of the snapshot shape.
+#
+#   pixi install          # solve + materialise .pixi/ (commit pixi.lock)
+#   pixi run doctor       # prove the toolchain works end to end
+#   pixi shell            # interactive
+[workspace]
+name = "ehl-munich-august-2026"
+description = "Autonomous design loop for patient-specific tibial fixation plates"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[dependencies]
+# 3.12, not the 3.10 of src/environment.yml: conda-forge's `ocp 7.7.2` (the
+# OpenCASCADE binding cadquery 2.5.2 needs) has no cp310 build at all. The old
+# python=3.10 + cadquery==2.5.2 pairing only ever worked because pip pulled ocp
+# wheels instead. See the cadquery note below.
+python = "3.12.*"
+
+# --- the verdict engine ---------------------------------------------------
+# The FEA solver. This is the one dependency that forced conda over pip, and
+# the reason src/fetch/install_calculix.sh existed. Provides the `ccx` binary.
+calculix = "2.23.*"
+
+# --- geometry: the artifact the agent writes ------------------------------
+# DELIBERATE BUMP 2.5.2 -> 2.8.0, the one deviation from src/requirements.txt.
+# Reason: on conda-forge, cadquery and gmsh SHARE OpenCASCADE (occt); pip's gmsh
+# wheel bundles its own copy and hides the clash. cadquery 2.5.2 pulls
+# ocp 7.7.2 -> occt 7.7.2, while gmsh 4.15.2 requires occt 7.9.3 -- unsolvable.
+# cadquery 2.8.0 pulls ocp 7.9.3.1 -> occt 7.9.3, so the whole geometry stack
+# sits on ONE OCC. Given the brief names the cadquery->gmsh handoff as the
+# likely point of failure, a single consistent OCC is worth more than the pin.
+# To hold 2.5.2 instead, gmsh has to come from PyPI -- two OCC copies in one
+# process, which is its own hazard.
+cadquery = "2.8.0.*"
+
+# --- mesh work: clearance checks, decimation, cropping, watertightness ----
+# 5.0.0 exists. Held at 4.12.2 per src/requirements.txt -- bump deliberately.
+trimesh = "4.12.2.*"
+
+# --- tet meshing for FEA, and format bridging ----------------------------
+# `gmsh` is the binary, `python-gmsh` the API. pip's `gmsh` wheel bundles both;
+# on conda-forge they are split, so name both to pin the binary too.
+gmsh = "4.15.2.*"
+python-gmsh = "4.15.2.*"
+meshio = "5.3.5.*"
+
+# --- read solver results back out ----------------------------------------
+ccx2paraview = "3.2.0.*"
+
+# --- reading the shape model .mat files from Python (no MATLAB needed) ----
+numpy = ">=1.24"
+scipy = ">=1.10"
+
+# Optional CT/mask route. Not in the default env because the primary anatomy
+# source is the SSM: TotalSegmentator ships no tibia label (src/refs/DATA_NOTES.md).
+#   pixi run -e ct python ...
+[feature.ct.dependencies]
+nibabel = ">=5.4"
+scikit-image = ">=0.24"
+# TotalSegmentator is PyPI-only and its WEIGHTS carry a separate licence --
+# vet that before enabling:
+# [feature.ct.pypi-dependencies]
+# TotalSegmentator = ">=2.18"
+
+# The brief's own FEA mitigations are tests: closed-form cantilever benchmark,
+# mesh convergence check, unit-consistency assertion.
+[feature.dev.dependencies]
+pytest = ">=8"
+ruff = ">=0.6"
+
+[environments]
+ct = ["ct"]
+dev = ["dev"]
+
+# --- tasks: the reproducible entry points --------------------------------
+[tasks.doctor]
+cmd = "python src/env/doctor.py"
+description = "Verify the toolchain: imports, ccx solver, SSM data presence"
+
+[tasks.fetch-ssm]
+cmd = "bash src/fetch/fetch_ssm_tibia.sh"
+description = "Primary anatomy data: 30 tibia-fibula cases + 4 SSMs (~550 MB, md5-checked, idempotent)"
+
+[tasks.fetch-ts]
+cmd = "bash src/fetch/fetch_totalsegmentator_lite.sh"
+description = "Secondary: 1228 CT mask volumes. Pass --with-images for the 22.6 GB image set"
+
+[tasks.ssm-sample]
+cmd = "python src/ssm/load_ssm.py out/ssm_samples"
+description = "Mean + 5 unseen anatomies as STL -- cheapest end-to-end check that the data is usable"
+depends-on = ["fetch-ssm"]
+
+[tasks.setup]
+description = "Fresh clone -> verified, data present, anatomies sampled"
+depends-on = ["doctor", "ssm-sample"]
+
+# pytest/ruff live only in the dev environment, so their tasks must too --
+# otherwise `pixi run test` resolves against the default env and can't find them.
+#   pixi run -e dev test
+[feature.dev.tasks.test]
+cmd = "pytest -q"
+description = "Run the verifier's sanity tests (closed-form benchmark, unit consistency)"
+
+[feature.dev.tasks.lint]
+cmd = "ruff check src"
+description = "Lint"

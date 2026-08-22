@@ -9,7 +9,7 @@
 1. A **service user API key** — starts with `cog_`. Created in *Settings → Service users*
    (org) or *Enterprise settings → Service users*. Shown once; copy on creation.
 2. The **organization ID** — every v3 path is scoped to it.
-3. An **ACU budget** for the event, so we can set `max_acu_limit` sensibly.
+3. An **ACU (Agent compute units) budget**.
 
 Ask the organizers for all three on day one.
 
@@ -49,6 +49,27 @@ Create-session body fields worth using for this project:
 | `idempotent` | avoid duplicate sessions on retry |
 
 Response: `session_id`, `url`, `is_new_session`.
+
+## Usage limits and tracking
+
+**For this submission we operate inside the ACU allowance and concurrency limits set by the event.** The guardrails in `.env.example` are placeholders; set them to the event's numbers once we have them, and enforce the per-session ceiling with `max_acu_limit` at session creation.
+
+These are event numbers, not product numbers. **In deployment the budget should be sized against the biomedical engineer's workload** — cases per week, candidates worth evaluating per case, and how much manual design time an hour of fan-out replaces. Fan-out width is a throughput decision, not a fixed constant.
+
+**Caps are recommended, not mandatory.** Uncapped is Devin's default. The exception is the acceptance thresholds — those are the verdict, not a budget knob, and shouldn't be relaxed silently.
+
+Devin meters **ACUs** (Agent Compute Units), not tokens. To track and manage them:
+
+| What | Where |
+|---|---|
+| Usage & billing overview, reset dates | [docs.devin.ai/admin/billing/usage](https://docs.devin.ai/admin/billing/usage) |
+| Per-user daily consumption over the API (v3) | [consumption-daily-users](https://docs.devin.ai/api-reference/v3/consumption/consumption-daily-users) |
+| Daily consumption over the API (v2) | [daily-consumption](https://docs.devin.ai/api-reference/v2/consumption/daily-consumption) |
+| Per-session ACU cost | Session Insights, in the session view |
+| Org / enterprise totals and per-user breakdown | *Organization Settings → Consumption Analytics*, *Enterprise Settings → Consumption* |
+| Hard per-org ACU cap | *Settings → Organizations* — activity stops at the cap instead of overspending |
+
+Enterprise consumption endpoints need an admin key, so we may only have session-level figures during the event. That is enough to report what a run cost.
 
 ## Credentials handling
 

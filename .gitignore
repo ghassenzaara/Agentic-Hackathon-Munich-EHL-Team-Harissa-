@@ -20,5 +20,12 @@ __pycache__/
 .venv/
 venv/
 
+# pixi: the solved env is a build artifact, the lockfile is NOT --
+# pixi.lock is what makes the toolchain reproducible on the Devin machine.
+.pixi/
+
 # os
 .DS_Store
+
+# personal scratch, not for submission
+my_comments.md
