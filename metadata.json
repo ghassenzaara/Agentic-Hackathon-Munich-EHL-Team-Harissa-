@@ -1,0 +1,61 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0NRHAN43YRATTWGZ20RHPBC",
+  "strategy": "manual-commit",
+  "branch": "Ghassen",
+  "checkpoints_count": 15,
+  "files_touched": [
+    ".gitignore",
+    "DOMAIN_KNOWLEDGE.md",
+    "README.md",
+    "autoimplants/bone.py",
+    "autoimplants/case_io.py",
+    "autoimplants/dicom_to_mesh.py",
+    "autoimplants/generator.py",
+    "autoimplants/import_case.py",
+    "autoimplants/landmarks.py",
+    "autoimplants/mesh_quality.py",
+    "autoimplants/run.py",
+    "autoimplants/section.py",
+    "autoimplants/surgical_plan.py",
+    "autoimplants/validators/geometry.py",
+    "autoimplants/validators/stress.py",
+    "docs/planning/real-ct-support-plan.md",
+    "docs/real-ct-cases.md",
+    "real_cases/example/bone.stl",
+    "real_cases/example/make_example.py",
+    "real_cases/example/surgical_plan.json",
+    "real_cases/example/surgical_plan_oblique.json",
+    "real_cases/synthetic_ct/make_ct.py",
+    "real_cases/synthetic_ct/surgical_plan.json",
+    "requirements.txt",
+    "tests/conftest.py",
+    "tests/test_case_io.py",
+    "tests/test_ct_pipeline.py",
+    "tests/test_dicom_series_roundtrip.py",
+    "tests/test_dicom_to_mesh.py",
+    "tests/test_generator_plan.py",
+    "tests/test_geometry_generalised.py",
+    "tests/test_import_case.py",
+    "tests/test_mesh_quality.py",
+    "tests/test_section.py",
+    "tests/test_stress.py",
+    "tests/test_surgical_plan.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 398,
+    "cache_creation_tokens": 780481,
+    "cache_read_tokens": 47718309,
+    "output_tokens": 246567,
+    "api_call_count": 199
+  }
+}
