@@ -1,0 +1,77 @@
+/caveman ultra
+
+---
+
+/plan read the real-ct-support-plan.md file in docs\planning folder reveiw it carefully and don't do anything else.
+
+---
+
+is everything fixable?
+
+---
+
+what do you mean is our idae shit
+
+---
+
+is there no online or live simulator that daven can use to simulate
+
+---
+
+final verdict: is our idea implementable right now
+
+---
+
+/goal go on claude, we're counting on you, implement the ct support thing and finish what has to be done
+
+---
+
+so right now does it work or still have something to do?
+
+---
+
+what did you create another requirements for dicom you can add it to requirements.txt of course if you don't have anything against it
+
+---
+
+next prepare the plan for what we need to implement next to make it work
+
+---
+
+what is really holding the product from converging for real cts?
+
+---
+
+/plan plan the next thing to do to make it work
+
+---
+
+what threshholds are decided and what to do now to make the project work fully end to end
+
+---
+
+for devin instructions another member is taking care of that finish what needs to be finished to test this out at least the processing pipeline of a real ct
+
+---
+
+yeah build right now to use after in the UI and does not daven use also a renderer to check for problems or does he other thing than that
+
+---
+
+okay just stop using claude in chrome and answer me did you just choose to show a wrong implant or is it not working?
+
+---
+
+oaky that's it since its working i'm merging to main to try to get daven set up and try everything end to end. Just confirm: right now it's supposed to work on real ct scans?
+
+---
+
+go on change it add commit and push to ghassen
+
+---
+
+no don't leave anything out commit everything
+
+---
+
+after that can you look at the pulled main after we merged our work and understand what got added to the repo and how now to link the thing that my teamate made for daven to really use it and make it work and before that do a sanity check for her work check if it's really going well with our work
