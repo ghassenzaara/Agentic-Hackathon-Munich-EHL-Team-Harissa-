@@ -75,9 +75,9 @@ is meant to work.
 
 Check the arithmetic before reaching for a scalar tweak:
 
-- Uniform thickening is capped by the 39 g implant mass budget. The baseline is
-  already 37.0 g, so you have about 5% more volume — worth roughly a 1.11×
-  bending-stress reduction.
+- The 55 g mass budget has headroom over the 37.0 g baseline, but the exhaustive
+  sweep recorded in `inputs/case.json` still finds no passing constant-thickness
+  design. Spend the available mass where the measured section is weak.
 - Widening past 17.6 mm hits the `perforating_vessel_bundle` keepout at mid-span (zone centre y=14.8 mm less its 6.0 mm radius); the baseline sits at 16 mm.
 - Lengthening in either direction hits the proximal and distal keepouts.
 

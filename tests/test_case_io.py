@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from autoimplants import case_io
+from autoimplants import run
 
 
 def test_default_case_resolves_to_the_synthetic_inputs():
@@ -79,3 +80,18 @@ def test_zero_length_direction_is_an_error(tmp_path):
 def test_missing_keepout_file_means_no_zones(tmp_path):
     case = {"inputs": {"keepout_zones": str(tmp_path / "absent.json")}}
     assert case_io.load_keepouts(case) == []
+
+
+def test_run_refuses_to_substitute_a_missing_case(tmp_path):
+    exit_code = run.main(
+        [
+            "--case",
+            str(tmp_path / "does-not-exist.json"),
+            "--validators",
+            "stub",
+            "--no-build",
+            "--out",
+            str(tmp_path / "out"),
+        ]
+    )
+    assert exit_code == 2

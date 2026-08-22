@@ -130,7 +130,7 @@ its gmsh wheel bundles a second OCC copy into the same process.)
 
 ### Compute budget
 
-For the hackathon, **we take the ACU allowance and concurrency limits the event gives us and stay inside them.** The caps in `.env.example` (`DEVIN_MAX_ACU_PER_SESSION`, `DEVIN_MAX_CONCURRENT_SESSIONS`, `DEVIN_MAX_ITERATIONS`) are placeholders to be set to the event's numbers once known — they are not a claim about what the system needs.
+For the hackathon, **we take the ACU allowance and concurrency limits the event gives us and stay inside them.** The harness exposes explicit `--acu-limit` and `--max-iterations` flags; event limits are operational inputs, not claims about what the system needs.
 
 Outside the event those numbers are the wrong ones. **In real use the budget should be sized against the biomedical engineer's actual caseload** — cases per week, how many candidate designs per case are worth evaluating, and how much of a three-day manual design an hour of fan-out is expected to replace. Fan-out width is a business decision about throughput, not a technical constant.
 

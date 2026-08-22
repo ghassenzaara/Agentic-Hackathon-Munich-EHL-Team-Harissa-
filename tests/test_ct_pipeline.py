@@ -16,7 +16,10 @@ It is ~27 MB and therefore not committed; these tests skip without it.
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -107,20 +110,38 @@ def test_case_imports_from_the_reconstructed_mesh(converted, tmp_path):
 
 def test_imported_ct_case_runs_the_design_loop(converted, tmp_path):
     """End to end: DICOM in, validated design out."""
-    pytest.importorskip("cadquery", reason="CAD toolchain not installed")
+    if importlib.util.find_spec("cadquery") is None:
+        pytest.skip("CAD toolchain not installed")
 
-    from autoimplants import case_io
-    from autoimplants.export import export_implant
-    from autoimplants.generator import build_implant
-    from autoimplants.params import default_params
-    from autoimplants.validators import geometry
+    from autoimplants.contracts import Report
 
     out, _ = converted
     _, case_path = import_case.import_case(PLAN, out, out_dir=tmp_path / "generated")
+    design_out = tmp_path / "design"
 
-    case = case_io.set_active_case(case_io.load_case(case_path), case_path)
-    stl = export_implant(build_implant(default_params()), tmp_path / "implant")
-    report = geometry.validate(str(stl), case)
+    # SimpleITK and OpenCASCADE can access-violate during Windows interpreter
+    # teardown when both native runtimes have been loaded into one process.
+    # Production already runs DICOM ingestion and CAD validation as separate CLI
+    # stages, so exercise that real boundary here too.
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "autoimplants.run",
+            "--case",
+            str(case_path),
+            "--validators",
+            "geometry",
+            "--out",
+            str(design_out),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    report = Report.load(design_out / "report.json")
 
     # The plate is built and seated: everything except conformance passes, which
     # is the same failure the synthetic case has and the one Devin is asked to fix.

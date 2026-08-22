@@ -56,7 +56,7 @@ Scheduling *is* the visible work of the layer, so name it concretely:
 
 - **Concurrency cap** — a bounded worker pool over the candidate queue, sized by ACU budget rather than ambition.
 - **Per-session budget** — `max_acu_limit` at create time, so no runaway candidate eats the event's credits.
-- **Uniform boot** — one `snapshot_id` for every session, so all N start from an identical toolchain and their results are actually comparable.
+- **Uniform boot** — one organization-configured Devin platform for every session, so all N start from an identical toolchain and their results are comparable.
 - **Machine-readable verdicts** — `structured_output_schema` so results merge into a leaderboard without parsing prose.
 - **Grouping** — `tags` per case and per candidate; this is what the fan-out board queries.
 - **Escalation policy** — what happens to a candidate that fails repeatedly: kill it, or respawn with a relaxed seed or a different parameterisation. A scheduler that reallocates budget from dead candidates to live ones is a real orchestration story, not a loop.

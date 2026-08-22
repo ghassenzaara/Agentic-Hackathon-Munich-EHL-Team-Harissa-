@@ -8,6 +8,7 @@ implant fitted to numbers nobody supplied.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -15,9 +16,23 @@ import pytest
 from autoimplants import surgical_plan
 from autoimplants.surgical_plan import PlanError
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 def test_example_plan_is_structurally_valid(example_plan):
     surgical_plan.validate_structure(example_plan)
+
+
+def test_synthetic_ct_plan_tracks_default_case_constraints():
+    default_case = json.loads((REPO_ROOT / "inputs" / "case.json").read_text(encoding="utf-8"))
+    ct_plan = json.loads(
+        (REPO_ROOT / "real_cases" / "synthetic_ct" / "surgical_plan.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert ct_plan["thresholds"] == default_case["thresholds"]
+    assert ct_plan["load_cases"] == default_case["load_cases"]
 
 
 @pytest.mark.parametrize("field", surgical_plan.REQUIRED_FIELDS)

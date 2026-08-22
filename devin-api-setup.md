@@ -17,7 +17,7 @@ Ask the organizers for all three on day one.
 
 Use **v3**. The v1 API (`/v1/sessions`) is marked deprecated in the docs in favour of
 v3 with service-user authentication. Legacy `apk_user_` / `apk_` keys only work on
-v1–v2 and don't support v3 features.
+v1–v2 and are not supported by this harness.
 
 - Base URL: `https://api.devin.ai/v3`
 - Auth header: `Authorization: Bearer cog_...`
@@ -40,15 +40,16 @@ Create-session body fields worth using for this project:
 | Field | Why we care |
 |---|---|
 | `prompt` | case ID, mesh URI, constraint spec, verifier contract |
-| `snapshot_id` | the machine image with CadQuery/gmsh/CalculiX pre-baked — avoids burning ten minutes per session on installs |
 | `max_acu_limit` | hard cost cap per candidate |
 | `structured_output_schema` | JSON Schema (Draft 7, ≤64KB) — makes the pass/fail verdict machine-readable instead of prose |
+| `structured_output_required` | require the final validated object before the session can finish |
+| `platform` | optional organization-configured platform label; omit it to use the organization default |
 | `tags` | tag by case + candidate so the fan-out board can group them |
 | `title` | readable session name for the demo |
 | `session_secrets` | per-session secrets not stored org-wide |
-| `idempotent` | avoid duplicate sessions on retry |
 
-Response: `session_id`, `url`, `is_new_session`.
+Response includes `session_id` and `url`; polling returns `status`,
+`status_detail`, and the validated `structured_output` when complete.
 
 ## Usage limits and tracking
 
