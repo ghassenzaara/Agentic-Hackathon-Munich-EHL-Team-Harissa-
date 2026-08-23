@@ -175,3 +175,11 @@ def test_patch_case_builds_the_patch_family(imported_patch):
     case = case_io.load_case(imported_patch)
     resolved = params.for_case(params.default_params(), case)
     assert resolved["family"] == "conformal_patch"
+
+
+def test_patch_case_carries_the_declared_loads_and_stress_limits(imported_patch):
+    """The solver reads the case, not the plan, so the loads have to survive import."""
+    case = json.loads(imported_patch.read_text("utf-8"))
+    assert {lc["type"] for lc in case["load_cases"]} == {"axial", "bending"}
+    assert case["thresholds"]["max_stress_MPa"] > 0.0
+    assert case["thresholds"]["max_deflection_mm"] > 0.0

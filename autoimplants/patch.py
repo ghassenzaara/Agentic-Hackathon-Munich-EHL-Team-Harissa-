@@ -31,11 +31,18 @@ import numpy as np
 import trimesh
 from scipy.spatial import Delaunay, cKDTree
 
-from . import case_io
+from . import case_io, self_intersection
 
 # A rim quad per boundary edge is enough: the boundary follows bone triangles, so
 # its edges are already at mesh resolution.
 MIN_REGION_FACES = 12
+# Normal-smoothing passes tried, in order, when offsetting the sheet. The first
+# one that yields a shell not passing through itself wins: smoothing is what
+# unfolds a crease, but every pass also pulls the inner face away from the bone,
+# so the least that works is the right amount. See build_shell.
+SMOOTHING_LADDER = (3, 6, 12, 24)
+# Sheet vertices closer together than this are one vertex. See _weld.
+WELD_TOL_MM = 0.05
 # How square-on to the fixation a bone face has to be to count as a seat: 60
 # degrees. Anything steeper is a cut wall or a fossa side, and wrapping the shell
 # around it creates a crease no offset survives (see _facing_screws).
@@ -355,18 +362,44 @@ def _smoothed_normals(sheet: trimesh.Trimesh, passes: int = 3) -> np.ndarray:
     return normals
 
 
-def build_shell(
-    bone: trimesh.Trimesh,
-    faces: np.ndarray,
+def _weld(sheet: trimesh.Trimesh, tol_mm: float = WELD_TOL_MM) -> trimesh.Trimesh:
+    """Fuse sheet vertices that sit on top of each other, within ``tol_mm``.
+
+    Exact-duplicate merging is not enough. Where a defect was cut out of the bone
+    mesh the cut leaves rim vertices a hundredth of a millimetre apart -- distinct,
+    so they survive ``merge_vertices``, yet close enough that the rim edge between
+    them is a sliver. Extruded, that sliver becomes a wall quad with no width that
+    crosses the outer surface, and one such facet pair is enough for tetgen to
+    refuse the whole solid. The tolerance is far below any feature the validators
+    measure, so welding costs the geometry nothing.
+    """
+    pairs = cKDTree(sheet.vertices).query_pairs(tol_mm, output_type="ndarray")
+    if not len(pairs):
+        return sheet
+    remap = np.arange(len(sheet.vertices))
+    for a, b in pairs:
+        lo, hi = sorted((remap[a], remap[b]))
+        remap[remap == hi] = lo
+    faces = remap[sheet.faces]
+    kept = (
+        (faces[:, 0] != faces[:, 1])
+        & (faces[:, 1] != faces[:, 2])
+        & (faces[:, 0] != faces[:, 2])
+    )
+    welded = trimesh.Trimesh(vertices=sheet.vertices, faces=faces[kept], process=False)
+    welded.remove_unreferenced_vertices()
+    return welded
+
+
+def _offset_shell(
+    sheet: trimesh.Trimesh,
     clearance_mm: float,
     wall_spec,
     screw_entries: np.ndarray,
+    passes: int,
 ) -> trimesh.Trimesh:
-    """Close the selected bone region into a solid shell standing off the bone."""
-    sheet = close_interior_holes(
-        _largest_component(bone.submesh([faces], append=True, repair=False))
-    )
-    normals = _smoothed_normals(sheet)
+    """Offset the sheet twice along its normals and stitch the copies at the rim."""
+    normals = _smoothed_normals(sheet, passes=passes)
     inner = sheet.vertices + normals * clearance_mm
     outer = inner + normals * _wall(wall_spec, sheet.vertices, screw_entries)[:, None]
 
@@ -394,6 +427,45 @@ def build_shell(
         shell.fill_holes()
         shell.fix_normals()
     return shell
+
+
+def build_shell(
+    bone: trimesh.Trimesh,
+    faces: np.ndarray,
+    clearance_mm: float,
+    wall_spec,
+    screw_entries: np.ndarray,
+) -> trimesh.Trimesh:
+    """Close the selected bone region into a solid shell standing off the bone.
+
+    The offset is retried with progressively smoother normals until the shell stops
+    passing through itself. Where the spanned defect meets the bone around it the
+    two surfaces form a crease, and offsetting across a crease crosses the offset
+    directions: the solid comes out closed and looks right, but a few facets sit on
+    the wrong side of each other. Nothing downstream tolerates that -- tetgen
+    aborts with ``PLC Error: A segment and a facet intersect``, so the FEA
+    validator can only report ERROR and the case gets no stress number at all, and
+    the fold is not a manufacturable body either. Smoothing unfolds it for a
+    fraction of a millimetre of conformance, which is why the ladder stops at the
+    first amount that works instead of always smoothing hard.
+    """
+    sheet = _weld(
+        close_interior_holes(
+            _largest_component(bone.submesh([faces], append=True, repair=False))
+        )
+    )
+    attempts = []
+    for passes in SMOOTHING_LADDER:
+        shell = _offset_shell(sheet, clearance_mm, wall_spec, screw_entries, passes)
+        if not self_intersection.is_self_intersecting(shell):
+            return shell
+        attempts.append(shell)
+    # Nothing on the ladder unfolded it, so smoothing further only cost conformance
+    # and wall for nothing: hand back the least-smoothed attempt. Returning it beats
+    # raising, because the geometry validators then measure it honestly and a
+    # reported wall or conformance number tells the next design iteration more than
+    # an exception carrying none. Downstream tetgen will still refuse it.
+    return attempts[0]
 
 
 def _drill(shell: trimesh.Trimesh, screws: list[dict], diameter: float) -> trimesh.Trimesh:

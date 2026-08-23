@@ -446,3 +446,40 @@ def test_standoff_is_not_the_distance_across_a_defect(tmp_path: Path):
     }
     assert checks["envelope_standoff"].value < DEFECT_RADIUS
     assert checks["envelope_standoff"].status == "PASS"
+
+
+def test_a_sliver_rim_edge_is_welded_before_it_is_extruded():
+    """A cut leaves rim vertices microns apart; extruded, they cross the outer face."""
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [1.0 + 1e-3, 1.0, 0.0],
+        ]
+    )
+    faces = np.array([[0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4]])
+    sheet = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+    welded = patch._weld(sheet)
+    assert len(welded.vertices) == 5
+    # The sliver triangle went with the duplicate; the rest of the sheet stayed.
+    assert len(welded.faces) == 3
+    assert welded.area == pytest.approx(sheet.area, abs=1e-3)
+
+
+def test_the_shell_does_not_pass_through_itself(tmp_path: Path):
+    """gmsh refuses a folded solid outright, so the patch cases would get no stress."""
+    from autoimplants import self_intersection
+
+    bone = vault()
+    hole = trimesh.creation.cylinder(
+        radius=DEFECT_RADIUS, segment=np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 60.0]])
+    )
+    bone = trimesh.boolean.difference([bone, hole])
+    bone.merge_vertices()
+    plan = screws()
+    faces = patch.region_faces(bone, {"type": "screw_span", "margin_mm": 12.0}, plan)
+    entries = np.array([s["entry_mm"] for s in plan], dtype=float)
+
+    shell = patch.build_shell(bone, faces, 0.25, 2.0, entries)
+    assert shell.is_watertight
+    assert not self_intersection.is_self_intersecting(shell)
