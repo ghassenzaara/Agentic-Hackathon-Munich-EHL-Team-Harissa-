@@ -146,10 +146,15 @@ class Report:
         interface: keep it dense, aligned, and unambiguous.
         """
         fails = self.failures()
+        counts = {
+            status: sum(check.status == status for check in self.checks)
+            for status in (PASS, SKIP, FAIL, ERROR)
+        }
         verdict = "PASS" if self.passed else "FAIL"
         head = (
             f"Iteration {self.iteration}: {verdict} "
-            f"({len(self.checks) - len(fails)}/{len(self.checks)} checks passing)"
+            f"({counts[PASS]} PASS, {counts[SKIP]} SKIP, "
+            f"{counts[FAIL]} FAIL, {counts[ERROR]} ERROR; {len(self.checks)} total)"
         )
         lines = [head, "=" * len(head)]
 

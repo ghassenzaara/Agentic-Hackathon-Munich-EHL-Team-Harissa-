@@ -208,11 +208,17 @@ class RunManager:
                 if record.get("status") == "needs_attention":
                     if record.get("active_session"):
                         self.store.update(
-                            run_id, status="devin_running", phase="Rechecking Devin session"
+                            run_id,
+                            status="devin_running",
+                            phase="Rechecking Devin session",
+                            error=None,
                         )
                     else:
                         self.store.update(
-                            run_id, status="queued", phase="Retrying the interrupted local step"
+                            run_id,
+                            status="queued",
+                            phase="Retrying the interrupted local step",
+                            error=None,
                         )
             self._queue.append(run_id)
             self._queued.add(run_id)

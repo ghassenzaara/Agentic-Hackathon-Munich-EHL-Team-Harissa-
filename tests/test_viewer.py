@@ -58,3 +58,12 @@ def test_skipped_stress_does_not_block_geometry_convergence(monkeypatch):
     assert '"stress":{"PASS":0,"FAIL":0,"SKIP":8,"ERROR":0,"TOTAL":8}' in html
     assert '"geometry_converged":true' in html
     assert "GEOMETRY CONVERGED" in html
+    assert "Skipped checks are never included in a passing total." in html
+
+
+def test_report_summary_never_counts_skip_as_pass():
+    summary = _report(geometry_fail=False).summary()
+
+    assert "13 PASS, 8 SKIP" in summary
+    assert "21/21" not in summary
+    assert "checks passing" not in summary
