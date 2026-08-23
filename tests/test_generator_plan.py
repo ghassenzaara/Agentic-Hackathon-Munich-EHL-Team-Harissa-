@@ -94,15 +94,23 @@ def test_screws_wider_than_the_plate_fail_loudly(oblique_case, tmp_path):
     assert "6.0 mm" in message
 
 
-def test_synthetic_case_is_unchanged(tmp_path):
-    """The generalisation must not move the demo case's numbers."""
+def test_demo_case_meets_every_geometry_check(tmp_path):
+    """The demo case must pass, on limits rather than on remembered numbers.
+
+    This used to pin the flat plate's 36.996 g and 8.596 mm gap, i.e. it asserted
+    that the design task had *not* been done: the conformance figure it protected
+    is 5.7x the case's own limit, so it failed by construction the moment the
+    plate started following the bone. Checking each measurement against the limit
+    the case declares keeps the regression value -- a plate that stops seating,
+    gets heavy or loses a bore still fails here -- without freezing one
+    particular solution.
+    """
     case_path = REPO_ROOT / "inputs" / "case.json"
     _, report = _build_and_validate(case_path, tmp_path)
 
     assert report.by_id("screw_trajectories_clear").value == 6.0
-    # Both figures are quoted in README.md and DOMAIN_KNOWLEDGE.md.
-    assert np.isclose(report.by_id("implant_mass").value, 36.996, atol=0.01)
-    assert np.isclose(report.by_id("bone_conformance_gap").value, 8.596, atol=0.01)
+    failures = [c.id for c in report.checks if c.status == "FAIL"]
+    assert not failures, report.summary()
 
 
 def test_seating_uses_the_lanes_the_plate_covers(oblique_case, tmp_path):
