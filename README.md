@@ -3,32 +3,32 @@
 
 # AutoImplants
 
-Designs a custom metal plate that screws onto a broken bone, then checks it
-against engineering limits and reports what passed and what failed.
+An autonomous engineering loop for patient-specific orthopedic fixation plates,
+built for the Cognition/Devin track at the TUM.ai Munich Agentic Hackathon.
 
-You supply two files:
+The working demo takes a bone mesh and surgical constraints, generates a
+CadQuery implant, exports STEP and STL, runs geometry and reduced-order stress
+checks, and produces a structured report. Devin can read that report, edit the
+small allowed design surface, commit its engineering rationale, and repeat.
 
-- a **3D surface mesh of the bone** (`.stl`), and
-- a **plan** (`.json`) — where the screws go, which regions must not be touched,
-  the maximum size, and the forces it must survive.
+> Research prototype only. It is not a clinical device or a substitute for
+> surgical planning, verification, validation, or regulatory review.
 
-It builds a parametric CAD solid, exports it, and scores it. Every check is a
-number with a limit and an `(x, y, z)` location, so a coding agent can read the
-failures, edit the design code, and re-run unattended.
+## What is working
 
-> Research prototype. Not a medical device.
+- Parametric implant generation and STEP/STL export.
+- Geometry, fit, keepout, screw-path, mass, and analytical stress checks.
+- Synthetic femur demo plus mesh/surgical-plan import for external cases.
+- DICOM-to-mesh ingestion for the synthetic CT fixture.
+- A localhost review application with a live 3D iteration timeline and durable queue.
+- Guarded Devin smoke test, iterative design harness, and server-side surgeon review.
+- An automated regression suite covering the runnable path and API client.
 
-## Requirements
-
-Python 3.12. CadQuery/OCP publish no wheels for 3.13+.
-
-## Install
-
-```bash
-bash setup.sh              # creates .venv/, installs requirements.txt
-```
-
-Windows: `.\setup.ps1`
+The repository also retains the team's higher-fidelity CalculiX/gmsh work in
+`solution_code/`, with its data/toolchain setup in `src/` and `pixi.toml`.
+That is an experimental verifier scaffold, not the acceptance path used by the
+demo. It is deliberately not presented as clinical FEA or silently mixed into
+the validated analytical report.
 
 ## Quick start
 
@@ -99,13 +99,55 @@ RBAC: `devin-api-setup.md`.
 | `-m autoimplants.dicom_to_mesh --dicom-dir D --out M` | CT scan folder to bone mesh |
 | `-m autoimplants.viewer` | Render a report as one standalone HTML file |
 
-The server needs API credentials to drive the agent loop:
+## Web app
 
 ```bash
-cp .env.example .env       # fill in DEVIN_API_KEY, DEVIN_ORG_ID
-set -a; . ./.env; set +a
 .venv/bin/python -m autoimplants.server
 ```
+
+Open <http://127.0.0.1:8765>. Drop in a bone `.stl` or a zipped DICOM series plus
+a plan `.json`, watch iterations arrive in a 3D timeline, and download the STEP,
+STL and report.
+
+It starts and serves fine with no credentials — you can upload, preview meshes
+and read past runs. Credentials are only needed to *start* an agent run:
+
+```bash
+cp .env.example .env       # add DEVIN_API_KEY and DEVIN_ORG_ID, then restart
+```
+
+`.env` is read automatically at startup; you do not need to export it yourself.
+`/api/preflight` reports exactly what is missing.
+
+### Letting other people reach it
+
+```bash
+.venv/bin/python -m autoimplants.server --host 0.0.0.0 --port 8765
+```
+
+Others on the same network then use `http://<your-ip>:8765`.
+
+> **There is no login.** Every route is open, so anyone who can reach the port
+> can start runs, spend ACUs and read every case on the box. Use it on a trusted
+> network only, and do not put it on the public internet.
+
+A cloud agent cannot POST back to a loopback address. Give it a reachable base
+URL when you tunnel:
+
+```bash
+.venv/bin/python -m autoimplants.server --public-url https://<tunnel-host>
+```
+
+### Sending someone a result without a server
+
+```bash
+.venv/bin/python -m autoimplants.viewer \
+  --case inputs/case.json --implant out/implant.stl \
+  --report out/report.json --out out/viewer.html
+```
+
+One self-contained HTML file — geometry, report and 3D viewer inlined, no
+network. Email it, attach it to a PR, or open it offline.
 
 ## Ready-made inputs
 
