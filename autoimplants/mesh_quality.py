@@ -40,7 +40,16 @@ _GENERIC_EXTENT_MM = (20.0, 1200.0)
 
 # Above this, ray casting and containment queries dominate the validator runtime.
 # A decimated femur is still far finer than the gap thresholds being measured.
-MAX_FACES = 200_000
+#
+# 200_000 was set high enough that it never fired: marching cubes over a 0.8 mm
+# CT gives a femur of ~132k triangles, which sailed through and then took 260 s
+# per geometry validation, against 8 s to build the plate. Measured on that mesh,
+# decimating to 30k is free -- max surface deviation 0.0005 mm, still watertight,
+# and every geometry check reports the same value to three decimals
+# (bone_conformance_gap 1.228, bone_clearance_min 0.331) -- and validation drops
+# to 59 s. Below ~24k the surface starts to move (0.37 mm) and self-intersect, so
+# this is the coarsest lossless budget rather than the coarsest usable one.
+MAX_FACES = 30_000
 
 # An island smaller than this fraction of the largest component is segmentation
 # speckle, not anatomy.
