@@ -158,6 +158,7 @@ def test_landing_story_precedes_intake_and_preserves_workflow_hooks(monkeypatch)
 
     assert 'id="landing-story" data-active-beat="0"' in html
     assert '<canvas id="landing-view" aria-hidden="true"></canvas>' in html
+    assert 'class="story-progress" aria-hidden="true"' in html
     assert '"landing_mesh":{"name":"landing-femur"' in html
     assert "DATA.landing_mesh||DATA.meshes[0]" in html
     assert "commons.wikimedia.org/wiki/File:Human_femur.stl" in html
@@ -169,6 +170,8 @@ def test_landing_story_precedes_intake_and_preserves_workflow_hooks(monkeypatch)
     assert 'id="dropzone"' in html
     assert 'id="case-review"' in html
     assert 'id="start-run"' in html
+    assert 'id="preflight-summary"' in html
+    assert 'id="preflight-details"' in html
     assert "IntersectionObserver" in html
     assert 'addEventListener("scroll"' not in html
     assert "function createMeshRenderer" in html
@@ -212,6 +215,29 @@ def test_post_scroll_workspace_uses_local_dimension_design_system(monkeypatch):
     assert '--dim-action:#203746' in html
     assert '.workbench .coverage-grid{display:block' in html
     assert '.workbench .export-buttons #export-step{grid-column:1/span 2' in html
+    assert '#case-intake.has-anatomy .intake-main' in html
+    assert '.workbench .case-heading{display:block!important}' in html
+    assert 'data-filter="findings" aria-pressed="true"' in html
+    assert 'currentFilter="findings"' in html
+    assert 'const HOME={az:74,el:12,zoom:1.38' in html
+    assert 'System ready — Devin connection and case storage verified.' in html
+    assert 'lastAutoLocatedKey' in html
+    assert 'id="t-stress"' in html
+    assert 'id="stress-legend"' in html
+    assert '.workbench .stress-legend{right:14px' in html
+    assert '"fea_max_von_mises","fea_peak_displacement"' in html
+    assert 'field:m.field?Float32Array.from(m.field):null' in html
+    assert '["stress_field.json","Per-vertex von Mises field from the solve"' in html
+    assert 'if(m.spec)paintFace(index,true)' in html
+    assert 'diagnostic evidence, so it receives a second opaque CAD pass' in html
+    assert 'color:m.name.includes("implant")?"#566f7f":m.color' in html
+    assert viewer.IMPLANT_COLOR == "#566f7f"
+    assert 'REQUIRED_PLAN_FIELDS=["case_id","bone","side","approach"' in html
+    assert "internal generated case manifest, not an uploadable surgical plan" in html
+    assert 'showAwaitingFirstDesign(run)' in html
+    assert 'className="run-stop-state"' in html
+    assert 'meshes=uploadedMesh?[uploadedMesh]:[]' in html
+    assert 'DATA.iterations=[]' in html
     assert "function safeRationale(text,g,s)" in html
     assert 'replace(/\\b21\\s*\\/\\s*21\\b/gi,authoritative)' in html
     assert 'id="bone-file"' in html
@@ -258,3 +284,26 @@ def test_landing_visual_contract_remains_unchanged(monkeypatch):
         '{az:96,el:-5,zoom:1.11,tx:0,ty:4}]' in html
     )
     assert html.count('class="story-beat" data-beat=') == 3
+    assert '.story-progress-track' in html
+
+
+def test_intake_and_evidence_default_to_progressive_disclosure(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page(
+        {"case_id": "CASE-7"}, None, _report(geometry_fail=True), server_mode=True
+    )
+
+    assert 'id="case-intake-copy"' in html
+    assert 'id="intake-note"' in html
+    assert '$("case-intake").classList.add("has-anatomy")' in html
+    assert '$("case-intake-title").textContent="Anatomy received."' in html
+    assert 'id="preflight-detail-copy"' in html
+    assert 'panel.open=kind==="error"' in html
+    assert 'data-filter="findings" aria-pressed="true"' in html
+    assert 'No blocking findings in this validated iteration.' in html
+    assert '>Validation</button>' in html
+    assert '13 enforced geometry checks · indicative linear-static stress solve' in html
+    assert 'Geometry and the indicative stress solve remain clearly separated.' in html
+    assert 'stress results are indicative, skipped checks were not validated' in html
+    assert "21/21" not in html

@@ -110,11 +110,43 @@ def _series_zip(slices: int = 3) -> bytes:
     return buffer.getvalue()
 
 
+def _surgical_plan(case_id: str = "REAL-CT-001") -> bytes:
+    """Small but structurally complete external-plan fixture."""
+    return json.dumps(
+        {
+            "case_id": case_id,
+            "bone": "femur",
+            "side": "right",
+            "approach": "lateral",
+            "coordinate_frame": {
+                "axes": {
+                    "shaft": [0, 0, 1],
+                    "mount_side": [1, 0, 0],
+                    "origin_mm": [0, 0, 0],
+                }
+            },
+            "footprint_z_mm": [100, 280],
+            "screws": [
+                {
+                    "id": "screw_0",
+                    "entry_mm": [10, 0, 140],
+                    "direction": [-1, 0, 0],
+                    "diameter_mm": 4.5,
+                    "length_mm": 34,
+                }
+            ],
+            "keepouts": [],
+            "material": {"name": "Ti-6Al-4V", "density_g_cm3": 4.43},
+            "thresholds": {},
+        }
+    ).encode()
+
+
 def test_dicom_series_and_plan_are_staged_for_the_worker(tmp_path):
     root = _repo(tmp_path)
     manager = FakeManager(root, tmp_path / "runtime")
     app = create_app(root, tmp_path / "runtime", tmp_path / "workspaces", manager=manager)
-    plan = json.dumps({"case_id": "REAL-CT-001", "screws": []}).encode()
+    plan = _surgical_plan()
 
     with TestClient(app) as client:
         accepted = client.post(
@@ -174,6 +206,21 @@ def test_intake_needs_exactly_one_anatomy_source_and_a_readable_plan(tmp_path):
             data=ack,
         )
         assert broken.status_code == 422
+
+        internal_case_manifest = client.post(
+            "/api/runs",
+            files={
+                "bone": ("bone.stl", b"demo-stl", "model/stl"),
+                "plan": (
+                    "case.json",
+                    json.dumps({"case_id": "X", "inputs": {"bone_mesh": "bone.stl"}}),
+                    "application/json",
+                ),
+            },
+            data=ack,
+        )
+        assert internal_case_manifest.status_code == 422
+        assert "missing required field" in internal_case_manifest.json()["detail"]
 
         empty = client.post(
             "/api/runs",

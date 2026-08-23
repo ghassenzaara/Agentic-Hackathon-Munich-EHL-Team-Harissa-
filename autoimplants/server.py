@@ -31,7 +31,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from autoimplants import case_io, dicom_to_mesh, import_case, viewer
+from autoimplants import case_io, dicom_to_mesh, import_case, surgical_plan, viewer
 from autoimplants.contracts import Report
 from harness.devin_client import DevinClient, DevinError, load_env
 from harness.guard import EDITABLE_GLOBS, violations
@@ -1113,7 +1113,10 @@ def create_app(
             staged.mkdir(parents=True, exist_ok=True)
             try:
                 await save_upload(plan, staged / "surgical_plan.json", MAX_PLAN_BYTES)
-                json.loads((staged / "surgical_plan.json").read_text(encoding="utf-8"))
+                # Reject internal generated case manifests and incomplete plans
+                # before a run is queued. These are user-correctable intake
+                # failures, not background failures that belong in a workbench.
+                surgical_plan.load_plan(staged / "surgical_plan.json")
                 if dicom and dicom.filename:
                     archive = staged / "series.zip"
                     await save_upload(dicom, archive, MAX_DICOM_BYTES)
