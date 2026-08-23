@@ -22,8 +22,10 @@ sharper at the scale anyone looks at it.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 from . import case_io
@@ -33,6 +35,12 @@ from .validators.stress import CHECK_IDS as STRESS_CHECK_IDS
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(__file__).resolve().parent / "viewer_template.html"
 LANDING_BONE_ASSET = Path(__file__).resolve().parent / "assets" / "human_femur_hero.stl"
+FONT_ASSET_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
+POST_SCROLL_FONTS = {
+    "{{DM_SANS_FONT}}": FONT_ASSET_DIR / "DMSans-Variable.woff2",
+    "{{GEIST_FONT}}": FONT_ASSET_DIR / "Geist-Variable.woff2",
+    "{{GEIST_MONO_FONT}}": FONT_ASSET_DIR / "GeistMono-Variable.woff2",
+}
 
 # Display budgets. Well below what the validators measure on -- this is for
 # looking at, and the sort in the renderer is per-frame.
@@ -47,6 +55,12 @@ COORD_DECIMALS = 2
 BONE_COLOR = "#d8cfc0"
 IMPLANT_COLOR = "#8fa3b0"
 LANDING_BONE_COLOR = "#e7e0d4"
+
+
+@lru_cache(maxsize=None)
+def _font_data(path: Path) -> str:
+    """Inline post-scroll fonts so exported review pages still work offline."""
+    return base64.b64encode(path.read_bytes()).decode("ascii")
 
 
 def _status_counts(checks: list[dict]) -> dict[str, int]:
@@ -219,6 +233,7 @@ def build_page(
         "{{PASS_COUNT}}": str(geometry_counts["PASS"]),
         "{{TOTAL_COUNT}}": str(geometry_counts["TOTAL"]),
         "{{META}}": " · ".join(meta_bits),
+        **{token: _font_data(path) for token, path in POST_SCROLL_FONTS.items()},
         # </script> inside the JSON would close the tag holding it.
         "{{DATA}}": json.dumps(payload, separators=(",", ":")).replace("</", "<\\/"),
     }.items():

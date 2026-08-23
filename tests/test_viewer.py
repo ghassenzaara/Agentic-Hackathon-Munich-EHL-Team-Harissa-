@@ -121,3 +121,74 @@ def test_landing_femur_asset_is_the_reviewed_web_derivative():
         hashlib.sha256(asset.read_bytes()).hexdigest()
         == "a4bd5fc78eed691c007022054b0d2c102233839faebb3c3ae52c167dce90bc88"
     )
+
+
+def test_post_scroll_workspace_uses_local_dimension_design_system(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page(
+        {"case_id": "CASE-5"}, None, _report(geometry_fail=True), server_mode=True
+    )
+
+    assert 'id="dimension-workspace"' in html
+    assert 'id="clinical-interface"' not in html
+    assert html.count("data:font/woff2;base64,") == 3
+    assert "{{DM_SANS_FONT}}" not in html
+    assert "{{GEIST_FONT}}" not in html
+    assert "{{GEIST_MONO_FONT}}" not in html
+    assert '--dim-canvas:#e7f1f7' in html
+    assert '--dim-glass:rgba(255,255,255,.68)' in html
+    assert '--dim-solid:#f8fbfd' in html
+    assert '--dim-ink:#122331' in html
+    assert '--dim-muted:#5d7281' in html
+    assert '--dim-hairline:rgba(18,35,49,.12)' in html
+    assert '--dim-blue:#82a9cd' in html
+    assert '--dim-action:#203746' in html
+    assert '.workbench .coverage-grid{display:block' in html
+    assert '.workbench .export-buttons #export-step{grid-column:1/span 2' in html
+    assert "function safeRationale(text,g,s)" in html
+    assert 'replace(/\\b21\\s*\\/\\s*21\\b/gi,authoritative)' in html
+    assert 'id="bone-file"' in html
+    assert 'id="dropzone"' in html
+    assert 'id="case-review"' in html
+    assert 'id="start-run"' in html
+    assert 'id="approve-dialog"' in html
+    assert 'id="revision-dialog"' in html
+    assert "21/21" not in html
+
+
+def test_post_scroll_font_assets_are_pinned_and_licensed():
+    expected = {
+        "DMSans-Variable.woff2": "ca72d2bcea8f4daa783dbdfa2d9b46068c3ce38168e05918fb867aa453b4f890",
+        "Geist-Variable.woff2": "a369fcf5628ea2aa4e1b9e2ec6a5b3624e365bda588e1f0f2f12b564f728fbb8",
+        "GeistMono-Variable.woff2": "fba8f577f38a2bbcbe818efa6348dd58f36303a10b8737c42fefad275be563ab",
+    }
+
+    for path in viewer.POST_SCROLL_FONTS.values():
+        assert path.exists()
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected[path.name]
+
+    for license_name in ("OFL-DM-Sans.txt", "OFL-Geist.txt"):
+        license_text = (viewer.FONT_ASSET_DIR / license_name).read_text(encoding="utf-8")
+        assert "SIL OPEN FONT LICENSE Version 1.1" in license_text
+
+
+def test_landing_visual_contract_remains_unchanged(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page(
+        {"case_id": "CASE-6"}, None, _report(geometry_fail=True), server_mode=True
+    )
+
+    assert (
+        ':root{--landing-ink:#122331;--landing-white:#f8fbfd;'
+        '--landing-blue:#82a9cd;--landing-blue-deep:#7199bf;'
+        '--landing-blue-pale:#dceaf4' in html
+    )
+    assert '.landing-story{position:relative;min-height:300dvh' in html
+    assert (
+        'cameraFrames=[{az:-34,el:-8,zoom:1.08,tx:0,ty:0},'
+        '{az:24,el:10,zoom:1.18,tx:0,ty:-8},'
+        '{az:96,el:-5,zoom:1.11,tx:0,ty:4}]' in html
+    )
+    assert html.count('class="story-beat" data-beat=') == 3
