@@ -448,7 +448,15 @@ class RunManager:
                 phi_tags=phi,
                 phase="Segmenting bone from the CT volume",
             )
-            dicom_to_mesh.dicom_to_mesh(series, bone_path, bone="femur")
+            # The plan's landmarks bound the region of interest: a clinical scan
+            # usually holds more than the planned bone, and segmenting all of it
+            # yields femur-plus-tibia, which the mesh gate rightly rejects.
+            dicom_to_mesh.dicom_to_mesh(
+                series,
+                bone_path,
+                bone="femur",
+                landmarks_mm=dicom_to_mesh.plan_landmarks(plan_path),
+            )
 
         self.store.update(run_id, status="ingesting", phase="Importing the surgical plan")
         case_id = str(record["case_id"])

@@ -212,3 +212,67 @@ def test_mount_side_along_the_axis_is_rejected(converted):
 
     with pytest.raises(landmarks.LandmarkError, match="parallel"):
         landmarks.propose(mesh, mount_side=axis)
+
+
+# -- region of interest -------------------------------------------------------
+#
+# A clinical series is not cropped to one bone: a lower-limb scan holds femur and
+# tibia, the largest component bridges the joint, and the mesh gate then rejects a
+# 900 mm "femur". The plan's landmarks are what say where the planned bone is.
+
+
+def _two_bar_volume():
+    """Volume with two bone-valued bars along z, separated by a gap."""
+    volume = np.full((200, 40, 40), -200.0, dtype=np.float32)
+    volume[10:70, 18:23, 18:23] = 800.0     # planned bone
+    volume[130:190, 18:23, 18:23] = 800.0   # neighbouring bone
+    affine = np.diag([1.0, 1.0, 2.0, 1.0])
+    affine[:3, 3] = [5.0, -3.0, 100.0]
+    return volume, affine
+
+
+def test_landmark_crop_keeps_the_planned_bone_only():
+    volume, affine = _two_bar_volume()
+    # Two points on the first bar, in patient mm.
+    landmarks_mm = [[25.0, -0.5, 140.0], [25.0, -0.5, 200.0]]
+
+    cropped, shifted = dicom_to_mesh.crop_to_landmarks(volume, affine, landmarks_mm, margin_mm=20.0)
+
+    z_low = shifted[2, 3]
+    z_high = z_low + (cropped.shape[0] - 1) * shifted[2, 2]
+    assert 100.0 <= z_low <= 140.0
+    assert 200.0 <= z_high < 360.0  # the second bar starts at z = 360 mm
+
+    mask = dicom_to_mesh.segment_bone(cropped, 300.0)
+    kept = np.argwhere(mask)
+    assert kept.size > 0
+    # Every voxel kept maps back inside the first bar.
+    patient_z = shifted[2, 3] + kept[:, 0] * shifted[2, 2]
+    assert patient_z.max() < 360.0
+
+
+def test_landmark_crop_preserves_patient_coordinates():
+    volume, affine = _two_bar_volume()
+    landmarks_mm = [[25.0, -0.5, 140.0], [25.0, -0.5, 200.0]]
+
+    cropped, shifted = dicom_to_mesh.crop_to_landmarks(volume, affine, landmarks_mm, margin_mm=30.0)
+
+    full = dicom_to_mesh.mask_to_mesh(dicom_to_mesh.segment_bone(volume[:100], 300.0), affine)
+    part = dicom_to_mesh.mask_to_mesh(dicom_to_mesh.segment_bone(cropped, 300.0), shifted)
+    # Cropping must move the affine, not the anatomy.
+    assert np.allclose(full.bounds[:, :2], part.bounds[:, :2], atol=1e-6)
+    assert np.allclose(full.centroid[:2], part.centroid[:2], atol=1e-6)
+
+
+def test_landmarks_outside_the_volume_are_rejected():
+    volume, affine = _two_bar_volume()
+    with pytest.raises(dicom_to_mesh.DicomError, match="outside the CT volume"):
+        dicom_to_mesh.crop_to_landmarks(volume, affine, [[5000.0, 5000.0, 5000.0]], margin_mm=5.0)
+
+
+def test_plan_landmarks_reads_the_plan_points():
+    if not PLAN.exists():
+        pytest.skip("run real_cases/synthetic_ct/make_ct.py to build the CT phantom")
+    points = dicom_to_mesh.plan_landmarks(PLAN)
+    assert len(points) >= 2
+    assert all(len(point) == 3 for point in points)
