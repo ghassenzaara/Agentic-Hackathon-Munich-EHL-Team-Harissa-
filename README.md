@@ -98,9 +98,12 @@ file edit against a report the server already produced. `DEVIN_MODE` overrides
 it (`lite`, `fast`, or empty for the organisation default).
 
 For a one-session integration check, open
-`http://127.0.0.1:8765/?max_iterations=1`; the intake will disclose and enforce a
-5-ACU maximum. The normal page caps each design or surgeon revision cycle at
-three sessions / 15 ACU.
+`http://127.0.0.1:8765/?max_iterations=1`; the intake discloses and enforces the
+per-turn maximum it will authorize, and the normal page caps a design or surgeon
+revision cycle at three such sessions. That per-turn limit is 20 ACU by default
+and `AUTOIMPLANTS_ACU_PER_ITERATION` overrides it: a session that reaches its
+limit is suspended mid-edit with `usage_limit_exceeded` and posts nothing back,
+so a cap set too low costs the iteration rather than saving it.
 
 Build the offline review-only page:
 

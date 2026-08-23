@@ -51,7 +51,12 @@ ITERATION_ARTIFACTS = (
     "implant.step",
     viewer.STRESS_FIELD_NAME,
 )
-ACU_PER_ITERATION = 5
+# What one design turn is allowed to spend. Devin suspends a session that reaches
+# its limit with `usage_limit_exceeded`, mid-edit and with nothing posted back, so
+# this is a real failure mode rather than an accounting detail: a turn has to read
+# the generator, reason about geometry and rewrite the file, which the original 5
+# did not always cover. Override it downwards for a cheap demo.
+DEFAULT_ACU_PER_ITERATION = 20
 MAX_ITERATIONS = 3
 MAX_BONE_BYTES = 25 * 1024 * 1024
 MAX_DICOM_BYTES = 1024 * 1024 * 1024
@@ -78,6 +83,18 @@ ACTIVE_STATES = {
     "validating_result",
 }
 RUNNABLE_STATES = {"queued", "revision_queued"}
+
+
+def acu_per_iteration() -> int:
+    """The per-turn spend limit, overridable through the environment."""
+    raw = os.environ.get("AUTOIMPLANTS_ACU_PER_ITERATION", "").strip()
+    if not raw:
+        return DEFAULT_ACU_PER_ITERATION
+    try:
+        budget = int(raw)
+    except ValueError:
+        return DEFAULT_ACU_PER_ITERATION
+    return budget if budget > 0 else DEFAULT_ACU_PER_ITERATION
 
 
 def utc_now() -> str:
@@ -339,8 +356,8 @@ class RunManager:
             "workspace": str(self.workspaces_root / run_id),
             "queue_position": None,
             "max_iterations": max_iterations,
-            "acu_per_iteration": ACU_PER_ITERATION,
-            "max_acu": max_iterations * ACU_PER_ITERATION,
+            "acu_per_iteration": acu_per_iteration(),
+            "max_acu": max_iterations * acu_per_iteration(),
             "revision": 0,
             "cycle_iteration": 0,
             "total_iterations": 0,
@@ -405,6 +422,7 @@ class RunManager:
             "devin_permission": devin_ready,
             "job_base_url": job_base,
             "design_sources": list(EDITABLE_SOURCES),
+            "acu_per_iteration": acu_per_iteration(),
             "warnings": warnings,
             "errors": errors,
         }
@@ -667,7 +685,7 @@ class RunManager:
             title=f"AutoImplants {run_id} · iteration {number}",
             tags=["autoimplants", run_id, f"revision-{record['revision']}", f"iter-{number}"],
             structured_output_schema=PATCH_OUTPUT_SCHEMA,
-            max_acu_limit=ACU_PER_ITERATION,
+            max_acu_limit=acu_per_iteration(),
         )
         session = {
             "session_id": created["session_id"],
@@ -978,7 +996,10 @@ class RunManager:
             if not request.feedback.strip():
                 raise ValueError("Revision feedback is required.")
             if not request.cost_ack:
-                raise ValueError("A fresh maximum 15-ACU revision must be confirmed.")
+                raise ValueError(
+                    "A fresh revision cycle of up to "
+                    f"{MAX_ITERATIONS * acu_per_iteration()} ACU must be confirmed."
+                )
 
         review = {
             "decision": request.decision,
@@ -1088,13 +1109,16 @@ def create_app(
         dicom: UploadFile | None = File(default=None),
         plan: UploadFile | None = File(default=None),
         max_iterations: int = Form(default=MAX_ITERATIONS),
-        acu_per_iteration: int = Form(default=ACU_PER_ITERATION),
+        acu_per_iteration_ack: int = Form(default=0, alias="acu_per_iteration"),
         cost_ack: bool = Form(default=False),
     ) -> dict:
         if not 1 <= max_iterations <= MAX_ITERATIONS:
             raise HTTPException(422, "max_iterations must be between 1 and 3")
-        if acu_per_iteration != ACU_PER_ITERATION:
-            raise HTTPException(422, "acu_per_iteration is locked to 5")
+        budget = acu_per_iteration()
+        # The page shows a cost before it asks for consent, so a caller that names a
+        # per-iteration budget must name the one this server will actually authorize.
+        if acu_per_iteration_ack not in (0, budget):
+            raise HTTPException(422, f"acu_per_iteration is locked to {budget}")
         if not cost_ack:
             raise HTTPException(422, "Confirm the maximum ACU cost before starting")
         readiness = manager.preflight()

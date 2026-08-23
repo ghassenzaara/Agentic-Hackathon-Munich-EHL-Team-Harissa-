@@ -10,11 +10,13 @@ from fastapi.testclient import TestClient
 
 from autoimplants.contracts import FAIL, PASS, SKIP, Check, Report
 from autoimplants.server import (
+    DEFAULT_ACU_PER_ITERATION,
     EDITABLE_SOURCES,
     VALIDATORS,
     ReviewRequest,
     RunManager,
     RunStore,
+    acu_per_iteration,
     create_app,
     extract_series,
 )
@@ -53,12 +55,15 @@ class FakeManager:
                 "phase": "Waiting",
                 "created_at": "2026-08-23T00:00:00+00:00",
                 "max_iterations": max_iterations,
-                "acu_per_iteration": 5,
-                "max_acu": max_iterations * 5,
+                "acu_per_iteration": acu_per_iteration(),
+                "max_acu": max_iterations * acu_per_iteration(),
                 "iterations": [],
                 "reviews": [],
             }
         )
+
+
+_acu = str(acu_per_iteration())
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -79,14 +84,14 @@ def test_upload_requires_demo_fingerprint_and_cost_ack(tmp_path):
         missing_ack = client.post(
             "/api/runs",
             files={"bone": ("bone.stl", b"demo-stl", "model/stl")},
-            data={"max_iterations": "3", "acu_per_iteration": "5", "cost_ack": "false"},
+            data={"max_iterations": "3", "acu_per_iteration": _acu, "cost_ack": "false"},
         )
         assert missing_ack.status_code == 422
 
         wrong_bone = client.post(
             "/api/runs",
             files={"bone": ("bone.stl", b"another-bone", "model/stl")},
-            data={"max_iterations": "3", "acu_per_iteration": "5", "cost_ack": "true"},
+            data={"max_iterations": "3", "acu_per_iteration": _acu, "cost_ack": "true"},
         )
         assert wrong_bone.status_code == 422
         assert "surgical-plan JSON" in wrong_bone.json()["detail"]
@@ -94,10 +99,10 @@ def test_upload_requires_demo_fingerprint_and_cost_ack(tmp_path):
         accepted = client.post(
             "/api/runs",
             files={"bone": ("bone.stl", b"demo-stl", "model/stl")},
-            data={"max_iterations": "3", "acu_per_iteration": "5", "cost_ack": "true"},
+            data={"max_iterations": "3", "acu_per_iteration": _acu, "cost_ack": "true"},
         )
         assert accepted.status_code == 202
-        assert accepted.json()["max_acu"] == 15
+        assert accepted.json()["max_acu"] == 3 * acu_per_iteration()
         assert manager.created == [3]
 
 
@@ -155,7 +160,7 @@ def test_dicom_series_and_plan_are_staged_for_the_worker(tmp_path):
                 "dicom": ("series.zip", _series_zip(), "application/zip"),
                 "plan": ("surgical_plan.json", plan, "application/json"),
             },
-            data={"max_iterations": "2", "acu_per_iteration": "5", "cost_ack": "true"},
+            data={"max_iterations": "2", "acu_per_iteration": _acu, "cost_ack": "true"},
         )
         assert accepted.status_code == 202, accepted.text
 
@@ -170,7 +175,7 @@ def test_intake_needs_exactly_one_anatomy_source_and_a_readable_plan(tmp_path):
     root = _repo(tmp_path)
     manager = FakeManager(root, tmp_path / "runtime")
     app = create_app(root, tmp_path / "runtime", tmp_path / "workspaces", manager=manager)
-    ack = {"max_iterations": "1", "acu_per_iteration": "5", "cost_ack": "true"}
+    ack = {"max_iterations": "1", "acu_per_iteration": _acu, "cost_ack": "true"}
     plan = ("surgical_plan.json", json.dumps({"case_id": "X"}).encode(), "application/json")
 
     with TestClient(app) as client:
@@ -542,3 +547,51 @@ def test_infeasible_submission_stops_the_run(tmp_path, monkeypatch):
     record = manager.store.get("posted")
     assert record["status"] == "failed"
     assert "keepouts" in record["error"]
+
+
+# -- what one design turn may spend -------------------------------------------
+
+
+def test_the_turn_budget_is_configurable_and_ignores_nonsense(monkeypatch):
+    """A turn suspended at its limit posts nothing back, so the cap is a real knob."""
+    assert acu_per_iteration() == DEFAULT_ACU_PER_ITERATION
+
+    monkeypatch.setenv("AUTOIMPLANTS_ACU_PER_ITERATION", "8")
+    assert acu_per_iteration() == 8
+
+    for junk in ("", "   ", "0", "-3", "plenty"):
+        monkeypatch.setenv("AUTOIMPLANTS_ACU_PER_ITERATION", junk)
+        assert acu_per_iteration() == DEFAULT_ACU_PER_ITERATION
+
+
+def test_intake_advertises_the_budget_it_will_authorize(tmp_path, monkeypatch):
+    """The page has to quote the real cost before it asks for consent."""
+    monkeypatch.setenv("AUTOIMPLANTS_ACU_PER_ITERATION", "9")
+    root = _repo(tmp_path)
+    manager = FakeManager(root, tmp_path / "runtime")
+    manager.preflight = lambda: {  # noqa: E731 - the real one needs credentials
+        "ready": True,
+        "errors": [],
+        "acu_per_iteration": acu_per_iteration(),
+    }
+    app = create_app(root, tmp_path / "runtime", tmp_path / "workspaces", manager=manager)
+
+    with TestClient(app) as client:
+        assert client.get("/api/preflight").json()["acu_per_iteration"] == 9
+
+        stale = client.post(
+            "/api/runs",
+            files={"bone": ("bone.stl", b"demo-stl", "model/stl")},
+            data={"max_iterations": "1", "acu_per_iteration": "5", "cost_ack": "true"},
+        )
+        assert stale.status_code == 422
+        assert "locked to 9" in stale.json()["detail"]
+
+        # A caller that names no budget accepts the server's.
+        accepted = client.post(
+            "/api/runs",
+            files={"bone": ("bone.stl", b"demo-stl", "model/stl")},
+            data={"max_iterations": "1", "cost_ack": "true"},
+        )
+        assert accepted.status_code == 202
+        assert accepted.json()["max_acu"] == 9
