@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
 import zipfile
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
-from autoimplants.contracts import PASS, SKIP, Check, Report
-from autoimplants.server import ReviewRequest, RunManager, RunStore, create_app, extract_series
+from autoimplants.contracts import FAIL, PASS, SKIP, Check, Report
+from autoimplants.server import (
+    EDITABLE_SOURCES,
+    ReviewRequest,
+    RunManager,
+    RunStore,
+    create_app,
+    extract_series,
+)
 from autoimplants.validators import pending_stress
 from autoimplants.validators.stress import CHECK_IDS
 
@@ -64,7 +71,7 @@ def _repo(tmp_path: Path) -> Path:
 def test_upload_requires_demo_fingerprint_and_cost_ack(tmp_path):
     root = _repo(tmp_path)
     manager = FakeManager(root, tmp_path / "runtime")
-    app = create_app(root, tmp_path / "runtime", tmp_path / "worktrees", manager=manager)
+    app = create_app(root, tmp_path / "runtime", tmp_path / "workspaces", manager=manager)
 
     with TestClient(app) as client:
         missing_ack = client.post(
@@ -104,7 +111,7 @@ def _series_zip(slices: int = 3) -> bytes:
 def test_dicom_series_and_plan_are_staged_for_the_worker(tmp_path):
     root = _repo(tmp_path)
     manager = FakeManager(root, tmp_path / "runtime")
-    app = create_app(root, tmp_path / "runtime", tmp_path / "worktrees", manager=manager)
+    app = create_app(root, tmp_path / "runtime", tmp_path / "workspaces", manager=manager)
     plan = json.dumps({"case_id": "REAL-CT-001", "screws": []}).encode()
 
     with TestClient(app) as client:
@@ -128,7 +135,7 @@ def test_dicom_series_and_plan_are_staged_for_the_worker(tmp_path):
 def test_intake_needs_exactly_one_anatomy_source_and_a_readable_plan(tmp_path):
     root = _repo(tmp_path)
     manager = FakeManager(root, tmp_path / "runtime")
-    app = create_app(root, tmp_path / "runtime", tmp_path / "worktrees", manager=manager)
+    app = create_app(root, tmp_path / "runtime", tmp_path / "workspaces", manager=manager)
     ack = {"max_iterations": "1", "acu_per_iteration": "5", "cost_ack": "true"}
     plan = ("surgical_plan.json", json.dumps({"case_id": "X"}).encode(), "application/json")
 
@@ -224,7 +231,7 @@ def test_pending_stress_is_eight_visible_skips():
 
 
 def test_rejection_is_append_only_and_gets_fresh_cycle(tmp_path, monkeypatch):
-    manager = RunManager(tmp_path / "repo", tmp_path / "runtime", tmp_path / "worktrees")
+    manager = RunManager(tmp_path / "repo", tmp_path / "runtime", tmp_path / "workspaces")
     report = Report.from_checks([Check(id="geometry", status=PASS)], iteration=2)
     iteration = {
         "number": 2,
@@ -266,54 +273,20 @@ def test_rejection_is_append_only_and_gets_fresh_cycle(tmp_path, monkeypatch):
     assert queued == ["revision-run"]
 
 
-def _git(cwd: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
-    return result.stdout.strip()
+def _patch_run(tmp_path: Path, monkeypatch, report: Report, *, max_iterations: int = 3):
+    """A run parked on a workspace, waiting for a design to be posted."""
+    repo = tmp_path / "repo"
+    (repo / "autoimplants").mkdir(parents=True)
+    (repo / "autoimplants" / "generator.py").write_text("PEAK_WALL_MM = 3.0\n")
+    (repo / "inputs").mkdir()
+    (repo / "inputs" / "case.json").write_text(json.dumps({"case_id": "SYNTH-FEMUR-001"}))
+    manager = RunManager(repo, tmp_path / "runtime", tmp_path / "workspaces")
+    workspace = tmp_path / "workspaces" / "posted"
+    (workspace / "autoimplants").mkdir(parents=True)
+    (workspace / "autoimplants" / "generator.py").write_text("PEAK_WALL_MM = 3.0\n")
+    (workspace / "inputs").mkdir()
+    (workspace / "inputs" / "case.json").write_text(json.dumps({"case_id": "SYNTH-FEMUR-001"}))
 
-
-def _guarded_repo(tmp_path: Path, changed_path: str):
-    remote = tmp_path / "remote.git"
-    seed = tmp_path / "seed"
-    agent = tmp_path / "agent"
-    server = tmp_path / "server-worktree"
-    _git(tmp_path, "init", "--bare", str(remote))
-    _git(tmp_path, "init", "-b", "main", str(seed))
-    _git(seed, "config", "user.email", "test@example.com")
-    _git(seed, "config", "user.name", "Test")
-    (seed / "autoimplants").mkdir()
-    (seed / "autoimplants" / "generator.py").write_text("VALUE = 1\n")
-    (seed / "inputs").mkdir()
-    (seed / "inputs" / "case.json").write_text("{}\n")
-    _git(seed, "add", ".")
-    _git(seed, "commit", "-m", "base")
-    _git(seed, "remote", "add", "origin", str(remote))
-    _git(seed, "push", "-u", "origin", "main")
-    _git(tmp_path, "clone", str(remote), str(agent))
-    _git(agent, "config", "user.email", "devin@example.com")
-    _git(agent, "config", "user.name", "Devin")
-    _git(agent, "checkout", "-b", "devin/autoimplants-test", "origin/main")
-    target = agent / changed_path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("CHANGED = True\n")
-    _git(agent, "add", changed_path)
-    rationale = "Contour the plate along the shaft\n\nFailure addressed: bone_conformance_gap."
-    _git(agent, "commit", "-m", rationale)
-    commit = _git(agent, "rev-parse", "HEAD")
-    _git(agent, "push", "origin", "HEAD:refs/heads/devin/autoimplants-test")
-    _git(tmp_path, "clone", str(remote), str(server))
-    _git(server, "checkout", "-b", "devin/autoimplants-test", "origin/main")
-    return seed, server, commit, rationale
-
-
-def test_remote_commit_is_guarded_then_independently_validated(tmp_path, monkeypatch):
-    seed, worktree, commit, rationale = _guarded_repo(tmp_path, "autoimplants/generator.py")
-    manager = RunManager(seed, tmp_path / "runtime", tmp_path / "worktrees")
-    base = _git(worktree, "rev-parse", "HEAD")
-    report = Report.from_checks(
-        [Check(id=f"geometry_{i}", status=PASS) for i in range(13)]
-        + [Check(id=check_id, status=SKIP) for check_id in CHECK_IDS],
-        iteration=1,
-    )
     out = tmp_path / "validated"
     out.mkdir()
     report.write(out / "report.json")
@@ -322,69 +295,164 @@ def test_remote_commit_is_guarded_then_independently_validated(tmp_path, monkeyp
     monkeypatch.setattr(manager, "_validate", lambda *_: (report, out))
     manager.store.put(
         {
-            "run_id": "guarded",
-            "status": "devin_running",
-            "phase": "Devin",
+            "run_id": "posted",
+            "case_id": "SYNTH-FEMUR-001",
+            "status": "awaiting_patch",
+            "phase": "Devin is engineering the next geometry",
             "created_at": "now",
-            "branch": "devin/autoimplants-test",
-            "worktree": str(worktree),
+            "workspace": str(workspace),
             "revision": 0,
             "cycle_iteration": 0,
             "total_iterations": 0,
-            "max_iterations": 3,
+            "max_iterations": max_iterations,
             "iterations": [],
             "reviews": [],
+            "pending_patch": None,
+            "patch_results": {},
             "active_session": {
                 "session_id": "session-1",
                 "url": "https://app.devin.ai/sessions/session-1",
-                "base_sha": base,
+                "token": "job-token",
                 "iteration": 1,
+                "patches": 0,
             },
         }
     )
-    manager._integrate_result(
-        manager.store.get("guarded"),
-        worktree,
-        {"commit_sha": commit, "topology_changed": True},
+    return manager, workspace
+
+
+def _converged_report() -> Report:
+    return Report.from_checks(
+        [Check(id=f"geometry_{i}", status=PASS) for i in range(13)]
+        + [Check(id=check_id, status=SKIP) for check_id in CHECK_IDS],
+        iteration=1,
     )
-    result = manager.store.get("guarded")
-    assert result["status"] == "awaiting_review"
-    assert result["iterations"][0]["commit_sha"] == commit
-    assert result["iterations"][0]["rationale"] == rationale
-    assert result["iterations"][0]["coverage"]["geometry"]["PASS"] == 13
-    assert result["iterations"][0]["coverage"]["stress"]["SKIP"] == 8
 
 
-def test_locked_file_commit_is_rejected_before_validation(tmp_path, monkeypatch):
-    seed, worktree, commit, _ = _guarded_repo(tmp_path, "inputs/case.json")
-    manager = RunManager(seed, tmp_path / "runtime", tmp_path / "worktrees")
-    base = _git(worktree, "rev-parse", "HEAD")
-    called = []
-    monkeypatch.setattr(manager, "_validate", lambda *_: called.append(True))
-    manager.store.put(
-        {
-            "run_id": "locked",
-            "status": "devin_running",
-            "phase": "Devin",
-            "created_at": "now",
-            "branch": "devin/autoimplants-test",
-            "worktree": str(worktree),
-            "revision": 0,
-            "cycle_iteration": 0,
-            "total_iterations": 0,
-            "max_iterations": 3,
-            "iterations": [],
-            "reviews": [],
-            "active_session": {
-                "session_id": "session-2",
-                "url": "https://app.devin.ai/sessions/session-2",
-                "base_sha": base,
-                "iteration": 1,
+def test_posted_design_is_executed_in_the_workspace_and_reported_back(tmp_path, monkeypatch):
+    report = _converged_report()
+    manager, workspace = _patch_run(tmp_path, monkeypatch, report)
+
+    accepted = manager.submit_patch(
+        "job-token",
+        {"autoimplants/generator.py": "PEAK_WALL_MM = 4.2\n"},
+        rationale="Raise the pad over the distal bores.",
+        topology_changed=True,
+    )
+    assert accepted["status"] == "accepted"
+    assert accepted["iteration"] == 1
+    # Nothing reaches the workspace until the worker executes the submission.
+    assert (workspace / "autoimplants" / "generator.py").read_text() == "PEAK_WALL_MM = 3.0\n"
+    assert manager.patch_job("job-token")["status"] == "validating"
+
+    record = manager._apply_patch(
+        manager.store.get("posted"), workspace, manager.store.get("posted")["pending_patch"]
+    )
+    assert (workspace / "autoimplants" / "generator.py").read_text() == "PEAK_WALL_MM = 4.2\n"
+    assert record["status"] == "awaiting_review"
+    assert record["iterations"][0]["rationale"] == "Raise the pad over the distal bores."
+    assert record["iterations"][0]["commit_sha"] == accepted["design_sha"]
+    assert record["iterations"][0]["coverage"]["geometry"]["PASS"] == 13
+    assert record["iterations"][0]["coverage"]["stress"]["SKIP"] == 8
+
+    # The job is closed once the geometry converged, and the verdict is readable.
+    job = manager.patch_job("job-token")
+    assert job["status"] == "closed"
+    assert job["last_result"]["verdict"] == "converged"
+
+
+def test_a_failing_design_gets_the_report_back_and_stays_open(tmp_path, monkeypatch):
+    failing = Report.from_checks(
+        [Check(id="implant_mass", status=FAIL, value=61.0, limit=55.0, unit="g")],
+        iteration=1,
+    )
+    manager, workspace = _patch_run(tmp_path, monkeypatch, failing)
+    messages = []
+    monkeypatch.setattr(
+        manager,
+        "client_factory",
+        lambda: type(
+            "Client",
+            (),
+            {"send_message": lambda _self, session, text: messages.append((session, text))},
+        )(),
+    )
+    manager.submit_patch("job-token", {"autoimplants/params.py": "WALL = 5\n"})
+    record = manager._apply_patch(
+        manager.store.get("posted"), workspace, manager.store.get("posted")["pending_patch"]
+    )
+    assert record["status"] == "awaiting_patch"
+    assert record["cycle_iteration"] == 1
+    job = manager.patch_job("job-token")
+    assert job["status"] == "report_ready"
+    assert job["last_result"]["failing"] == ["implant_mass"]
+    assert job["iteration"] == 2
+    assert job["sources"]["autoimplants/generator.py"] == "PEAK_WALL_MM = 3.0\n"
+    assert messages and "implant_mass" in messages[0][1]
+
+
+def test_locked_files_are_refused_before_they_reach_a_workspace(tmp_path, monkeypatch):
+    manager, workspace = _patch_run(tmp_path, monkeypatch, _converged_report())
+    with pytest.raises(PermissionError) as locked:
+        manager.submit_patch("job-token", {"inputs/case.json": "{}"})
+    assert "inputs/case.json" in str(locked.value)
+    with pytest.raises(PermissionError):
+        manager.submit_patch("job-token", {"autoimplants/validators/geometry.py": "pass"})
+    assert manager.store.get("posted")["pending_patch"] is None
+    assert (workspace / "inputs" / "case.json").read_text() == json.dumps(
+        {"case_id": "SYNTH-FEMUR-001"}
+    )
+
+
+def test_an_unknown_or_closed_job_cannot_post(tmp_path, monkeypatch):
+    manager, _ = _patch_run(tmp_path, monkeypatch, _converged_report())
+    with pytest.raises(LookupError):
+        manager.submit_patch("not-a-token", {"autoimplants/params.py": "WALL = 5\n"})
+    manager.submit_patch("job-token", {"autoimplants/params.py": "WALL = 5\n"})
+    with pytest.raises(ValueError):
+        manager.submit_patch("job-token", {"autoimplants/params.py": "WALL = 6\n"})
+
+
+def test_patch_endpoints_serve_the_job_and_reject_locked_paths(tmp_path, monkeypatch):
+    manager, _ = _patch_run(tmp_path, monkeypatch, _converged_report())
+    app = create_app(manager.repo_root, tmp_path / "runtime", tmp_path / "workspaces", manager=manager)
+    with TestClient(app) as client:
+        job = client.get("/api/patch/job-token")
+        assert job.status_code == 200
+        assert job.json()["editable_files"] == list(EDITABLE_SOURCES)
+        assert job.json()["sources"]["autoimplants/generator.py"] == "PEAK_WALL_MM = 3.0\n"
+        assert client.get("/api/patch/nope").status_code == 404
+
+        locked = client.post(
+            "/api/patch/job-token",
+            json={"files": {"harness/guard.py": "pass"}, "rationale": "no"},
+        )
+        assert locked.status_code == 403
+
+        posted = client.post(
+            "/api/patch/job-token",
+            json={
+                "files": {"autoimplants/generator.py": "PEAK_WALL_MM = 4.0\n"},
+                "rationale": "Thicker wall at the bores.",
+                "topology_changed": False,
             },
-        }
+        )
+        assert posted.status_code == 200, posted.text
+        assert posted.json()["paths"] == ["autoimplants/generator.py"]
+
+        busy = client.post(
+            "/api/patch/job-token",
+            json={"files": {"autoimplants/params.py": "WALL = 5\n"}},
+        )
+        assert busy.status_code == 409
+
+
+def test_infeasible_submission_stops_the_run(tmp_path, monkeypatch):
+    manager, _ = _patch_run(tmp_path, monkeypatch, _converged_report())
+    result = manager.submit_patch(
+        "job-token", {}, rationale="Mass budget and keepouts cannot both hold.", infeasible=True
     )
-    manager._integrate_result(manager.store.get("locked"), worktree, {"commit_sha": commit})
-    result = manager.store.get("locked")
-    assert result["status"] == "invalid"
-    assert "inputs/case.json" in result["error"]
-    assert called == []
+    assert result["status"] == "closed"
+    record = manager.store.get("posted")
+    assert record["status"] == "failed"
+    assert "keepouts" in record["error"]

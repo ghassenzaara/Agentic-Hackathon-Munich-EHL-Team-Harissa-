@@ -16,11 +16,11 @@ import hashlib
 import json
 import os
 import shutil
-import subprocess
 import threading
 import time
 import uuid
 import zipfile
+from urllib.parse import urlparse
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -34,12 +34,12 @@ from pydantic import BaseModel, Field
 from autoimplants import case_io, dicom_to_mesh, import_case, viewer
 from autoimplants.contracts import Report
 from harness.devin_client import DevinClient, DevinError, load_env
-from harness.guard import check_range, changed_files, is_ancestor
-from harness.loop import ITERATION_OUTPUT_SCHEMA, render_prompt, validate_locally
+from harness.guard import EDITABLE_GLOBS, violations
+from harness.loop import PATCH_OUTPUT_SCHEMA, render_patch_prompt, validate_locally
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_ROOT = REPO_ROOT / ".autoimplants-runtime"
-WORKTREES_ROOT = REPO_ROOT / ".autoimplants-worktrees"
+WORKSPACES_ROOT = REPO_ROOT / ".autoimplants-workspaces"
 DEMO_CASE = REPO_ROOT / "inputs" / "case.json"
 DEMO_BONE = REPO_ROOT / "inputs" / "bone.stl"
 VALIDATORS = "geometry,pending_stress"
@@ -48,13 +48,25 @@ MAX_ITERATIONS = 3
 MAX_BONE_BYTES = 25 * 1024 * 1024
 MAX_DICOM_BYTES = 1024 * 1024 * 1024
 MAX_PLAN_BYTES = 1024 * 1024
+# The design surface the agent is handed and allowed to post back. Anything else
+# is refused at the endpoint, before it can reach a workspace.
+EDITABLE_SOURCES = (
+    "autoimplants/generator.py",
+    "autoimplants/params.py",
+    "autoimplants/export.py",
+)
+MAX_PATCH_BYTES = 2 * 1024 * 1024
+PATCH_POLL_SECONDS = 4
+PATCH_TIMEOUT_SECONDS = 45 * 60
+# Copied into each run's workspace; everything else in the checkout is either
+# regenerated, irrelevant to a design run, or too large to duplicate per run.
+WORKSPACE_TREE = ("autoimplants", "harness", "inputs", "prompts", "real_cases")
 ACTIVE_STATES = {
     "preparing",
     "ingesting",
     "validating",
     "devin_running",
-    "fetching",
-    "guarding",
+    "awaiting_patch",
     "validating_result",
 }
 RUNNABLE_STATES = {"queued", "revision_queued"}
@@ -70,23 +82,6 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def run_command(
-    args: list[str], cwd: Path, *, check: bool = True, timeout: int = 120
-) -> str:
-    result = subprocess.run(
-        args,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
-    )
-    if check and result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        raise RuntimeError(f"{' '.join(args)} failed: {detail[:1500]}")
-    return result.stdout.strip()
 
 
 async def save_upload(upload: UploadFile, destination: Path, limit: int) -> Path:
@@ -200,12 +195,18 @@ class RunManager:
         self,
         repo_root: Path = REPO_ROOT,
         runtime_root: Path = RUNTIME_ROOT,
-        worktrees_root: Path = WORKTREES_ROOT,
+        workspaces_root: Path = WORKSPACES_ROOT,
         client_factory: Callable[[], DevinClient] = DevinClient,
+        public_base_url: str | None = None,
     ):
+        # The URL the design agent posts to. A cloud sandbox cannot reach loopback,
+        # so a tunnel URL belongs here; preflight says so when it is still local.
+        self.public_base_url = (
+            public_base_url or os.environ.get("AUTOIMPLANTS_PUBLIC_URL") or "http://127.0.0.1:8000"
+        )
         self.repo_root = Path(repo_root).resolve()
         self.runtime_root = Path(runtime_root).resolve()
-        self.worktrees_root = Path(worktrees_root).resolve()
+        self.workspaces_root = Path(workspaces_root).resolve()
         self.store = RunStore(self.runtime_root)
         self.client_factory = client_factory
         self._queue: deque[str] = deque()
@@ -237,7 +238,7 @@ class RunManager:
                     record["run_id"],
                     status="needs_attention",
                     phase="Server restarted during a local Git or validation step",
-                    error="Resume only after checking the recorded worktree and session.",
+                    error="Resume only after checking the recorded workspace and session.",
                 )
         self._thread = threading.Thread(target=self._worker, daemon=True, name="autoimplants-worker")
         self._thread.start()
@@ -305,8 +306,6 @@ class RunManager:
 
     def create_run(self, max_iterations: int, intake: Path | None = None) -> dict:
         run_id = uuid.uuid4().hex[:12]
-        branch = f"devin/autoimplants-{run_id}"
-        base_sha = run_command(["git", "rev-parse", "HEAD"], self.repo_root)
         if intake is None:
             case_id = case_io.load_case(self.demo_case_path).get("case_id", "SYNTH-FEMUR-001")
             phase = "Waiting for the Devin worker"
@@ -329,9 +328,7 @@ class RunManager:
             "created_at": utc_now(),
             "updated_at": utc_now(),
             "version": 0,
-            "branch": branch,
-            "base_sha": base_sha,
-            "worktree": str(self.worktrees_root / run_id),
+            "workspace": str(self.workspaces_root / run_id),
             "queue_position": None,
             "max_iterations": max_iterations,
             "acu_per_iteration": ACU_PER_ITERATION,
@@ -344,6 +341,8 @@ class RunManager:
             "iterations": [],
             "reviews": [],
             "active_session": None,
+            "pending_patch": None,
+            "patch_results": {},
             "error": None,
             "intake": str(intake) if intake else None,
             "case_path": None,
@@ -360,22 +359,20 @@ class RunManager:
         load_env(self.repo_root / ".env")
         key = os.environ.get("DEVIN_API_KEY", "")
         org = os.environ.get("DEVIN_ORG_ID", "")
-        remote = ""
-        branch = ""
-        synced = False
         errors: list[str] = []
-        try:
-            remote = run_command(["git", "remote", "get-url", "origin"], self.repo_root)
-            branch = run_command(["git", "branch", "--show-current"], self.repo_root)
-            local = run_command(["git", "rev-parse", "HEAD"], self.repo_root)
-            upstream = run_command(["git", "rev-parse", "origin/main"], self.repo_root)
-            synced = local == upstream
-            if branch != "main":
-                errors.append("The application checkout must be on main.")
-            if not synced:
-                errors.append("Local main must be committed, pushed, and equal to origin/main.")
-        except Exception:
-            errors.append("Git origin/main readiness check failed.")
+        warnings: list[str] = []
+        sources_present = all(
+            (self.repo_root / path).exists() for path in EDITABLE_SOURCES
+        ) and self.demo_case_path.exists()
+        if not sources_present:
+            errors.append("The design sources or the demo case are missing from this checkout.")
+        job_base = self.public_base_url
+        if urlparse(job_base).hostname in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+            warnings.append(
+                "The job URL is loopback-only, so a cloud sandbox cannot POST to it. "
+                "Designs will arrive through the session's structured output instead. "
+                "Set AUTOIMPLANTS_PUBLIC_URL to a reachable URL for the live exchange."
+            )
         devin_ready = False
         if key and org:
             try:
@@ -392,46 +389,49 @@ class RunManager:
             if not org:
                 errors.append("DEVIN_ORG_ID is missing")
         return {
-            "ready": bool(key and org and devin_ready and remote and branch == "main" and synced),
+            "ready": bool(key and org and devin_ready and sources_present),
             "credentials": {
                 "api_key": f"{key[:4]}…{key[-4:]}" if len(key) >= 10 else ("set" if key else "missing"),
                 "org_id": f"{org[:4]}…{org[-4:]}" if len(org) >= 10 else ("set" if org else "missing"),
             },
             "devin_permission": devin_ready,
-            "git": {"remote": remote, "branch": branch, "main_synced": synced},
+            "job_base_url": job_base,
+            "design_sources": list(EDITABLE_SOURCES),
+            "warnings": warnings,
             "errors": errors,
         }
 
-    def _prepare_worktree(self, record: dict) -> Path:
-        worktree = Path(record["worktree"])
-        if worktree.exists() and (worktree / ".git").exists():
-            return worktree
-        worktree.parent.mkdir(parents=True, exist_ok=True)
-        branch = record["branch"]
-        exists = subprocess.run(
-            ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
-            cwd=self.repo_root,
-            check=False,
-        ).returncode == 0
-        command = ["git", "worktree", "add"]
-        if not exists:
-            command.extend(["-b", branch])
-        command.extend([str(worktree), branch if exists else record["base_sha"]])
-        run_command(command, self.repo_root, timeout=180)
-        run_command(
-            ["git", "push", "--set-upstream", "origin", f"HEAD:refs/heads/{branch}"],
-            worktree,
-            timeout=180,
-        )
-        return worktree
+    def _prepare_workspace(self, record: dict) -> Path:
+        """A private copy of the design sources for this run.
 
-    def _ingest(self, record: dict, worktree: Path) -> dict:
-        """Uploaded scan plus plan to a validated case bundle inside the worktree.
+        No Git, no branch and no remote: the run owns a directory, the agent is
+        posted the files it may change, and the validators run against whatever
+        lands here. Two concurrent runs therefore cannot see each other's
+        geometry.
+        """
+        workspace = Path(record["workspace"])
+        if (workspace / "autoimplants" / "generator.py").exists():
+            return workspace
+        workspace.parent.mkdir(parents=True, exist_ok=True)
+        for name in WORKSPACE_TREE:
+            source = self.repo_root / name
+            if not source.exists():
+                continue
+            shutil.copytree(
+                source,
+                workspace / name,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "series"),
+            )
+        return workspace
 
-        The bundle is committed on the run's own branch so the Devin sandbox
-        validates the *patient's* case rather than the repo's demo one. Only
-        derived artefacts travel: the mesh, the placed plan and the transform.
-        The DICOM never leaves this machine.
+    def _ingest(self, record: dict, workspace: Path) -> dict:
+        """Uploaded scan plus plan to a validated case bundle inside the workspace.
+
+        The bundle lands in the run's own workspace, so the design agent works
+        against the *patient's* case rather than the repo's demo one. Only
+        derived artefacts are ever handed out: the mesh, the placed plan and the
+        transform. The DICOM never leaves this machine and nothing is committed.
         """
         run_id = record["run_id"]
         intake = Path(record["intake"])
@@ -452,7 +452,7 @@ class RunManager:
 
         self.store.update(run_id, status="ingesting", phase="Importing the surgical plan")
         case_id = str(record["case_id"])
-        out_dir = worktree / "real_cases" / case_id / "generated"
+        out_dir = workspace / "real_cases" / case_id / "generated"
         report, case_path = import_case.import_case(plan_path, bone_path, out_dir=out_dir)
         durable = self.store.run_dir(run_id) / "case"
         atomic_json(durable / "import_report.json", report.to_dict())
@@ -462,22 +462,7 @@ class RunManager:
                 "The uploaded scan and plan did not pass intake: " + ", ".join(failures)
             )
 
-        relative = case_path.relative_to(worktree).as_posix()
-        run_command(["git", "add", "--force", str(out_dir.relative_to(worktree))], worktree)
-        run_command(
-            [
-                "git",
-                "commit",
-                "-m",
-                f"Add imported case bundle for {case_id}\n\n"
-                "Derived mesh plus placed surgical plan for this run only. "
-                "No DICOM and no identifying tags are included.",
-            ],
-            worktree,
-        )
-        run_command(
-            ["git", "push", "origin", f"HEAD:refs/heads/{record['branch']}"], worktree, timeout=180
-        )
+        relative = case_path.relative_to(workspace).as_posix()
         return self.store.update(
             run_id,
             case_path=relative,
@@ -486,20 +471,20 @@ class RunManager:
             phase="Case bundle imported",
         )
 
-    def _case_path(self, record: dict, worktree: Path) -> Path:
+    def _case_path(self, record: dict, workspace: Path) -> Path:
         relative = record.get("case_path") or "inputs/case.json"
-        return worktree / relative
+        return workspace / relative
 
-    def _validate(self, worktree: Path, record: dict, iteration: int) -> tuple[Report, Path]:
+    def _validate(self, workspace: Path, record: dict, iteration: int) -> tuple[Report, Path]:
         out_dir = self.store.run_dir(record["run_id"]) / "working"
         if out_dir.exists():
             shutil.rmtree(out_dir)
         report = validate_locally(
             VALIDATORS,
-            repo_root=worktree,
+            repo_root=workspace,
             out_dir=out_dir,
             iteration=iteration,
-            case_path=self._case_path(record, worktree),
+            case_path=self._case_path(record, workspace),
         )
         return report, out_dir
 
@@ -571,30 +556,30 @@ class RunManager:
 
     def _process_run(self, run_id: str) -> None:
         record = self.store.get(run_id)
-        worktree = Path(record["worktree"])
+        workspace = Path(record["workspace"])
         active = record.get("active_session")
         if active:
-            if not worktree.exists():
+            if not workspace.exists():
                 self.store.update(
                     run_id,
                     status="needs_attention",
-                    phase="Recorded worktree is missing",
-                    error="The existing Devin session was not replaced. Restore the worktree first.",
+                    phase="Recorded workspace is missing",
+                    error="The existing Devin session was not replaced. Restore the workspace first.",
                 )
                 return
-            self._resume_active(record, worktree)
+            self._resume_active(record, workspace)
             return
 
-        self.store.update(run_id, status="preparing", phase="Creating isolated design branch", queue_position=None)
-        worktree = self._prepare_worktree(record)
+        self.store.update(run_id, status="preparing", phase="Preparing an isolated design workspace", queue_position=None)
+        workspace = self._prepare_workspace(record)
         record = self.store.get(run_id)
 
         if record.get("intake") and not record.get("case_path"):
-            record = self._ingest(record, worktree)
+            record = self._ingest(record, workspace)
 
         if not record["iterations"]:
             self.store.update(run_id, status="validating", phase="Validating the baseline geometry")
-            report, out_dir = self._validate(worktree, record, 0)
+            report, out_dir = self._validate(workspace, record, 0)
             baseline = self._snapshot(record, report, out_dir)
             record = self.store.mutate(run_id, lambda item: item["iterations"].append(baseline))
             if baseline["geometry_converged"]:
@@ -602,10 +587,10 @@ class RunManager:
                 return
 
         while int(record["cycle_iteration"]) < int(record["max_iterations"]):
-            self._start_iteration(record, worktree)
+            self._run_design_session(record, workspace)
             record = self.store.get(run_id)
             if record["status"] in {
-                "awaiting_review", "needs_attention", "invalid", "failed"
+                "awaiting_review", "needs_attention", "invalid", "failed", "capped"
             }:
                 return
 
@@ -616,10 +601,26 @@ class RunManager:
             queue_position=None,
         )
 
-    def _start_iteration(self, record: dict, worktree: Path) -> None:
+    def _job_url(self, token: str) -> str:
+        return f"{self.public_base_url.rstrip('/')}/api/patch/{token}"
+
+    def record_for_token(self, token: str) -> dict:
+        for record in self.store.list():
+            active = record.get("active_session") or {}
+            if active.get("token") == token or token in (record.get("patch_results") or {}):
+                return record
+        raise LookupError("Unknown design job.")
+
+    def _run_design_session(self, record: dict, workspace: Path) -> None:
+        """Hand the design surface to an agent and validate whatever it posts back.
+
+        The agent never sees this repository: it is given the failing checks, the
+        current source of the files it may change, and one job URL. Each design it
+        posts is executed here, against the patient's own case, and the resulting
+        report is handed straight back to it.
+        """
         run_id = record["run_id"]
         number = int(record["total_iterations"]) + 1
-        base_sha = run_command(["git", "rev-parse", "HEAD"], worktree)
         previous = Report.from_dict(record["iterations"][-1]["report"])
         history = [
             f"iter {item['number']}: {item.get('rationale', '')}"
@@ -629,168 +630,319 @@ class RunManager:
         feedback = record.get("feedback", "")
         if record.get("feedback_pin"):
             feedback += "\nPinned bone coordinate (mm): " + json.dumps(record["feedback_pin"])
-        prompt = render_prompt(
+        token = uuid.uuid4().hex
+        prompt = render_patch_prompt(
             number,
             previous,
-            record["branch"],
             history,
-            repo_root=worktree,
+            self._job_url(token),
+            list(EDITABLE_SOURCES),
+            str(record["case_id"]),
             feedback=feedback,
         )
-        case_flag = ""
-        if record.get("case_path"):
-            case_flag = f" --case {record['case_path']}"
-        prompt += (
-            "\n\nFor this live workflow the authoritative validation command is:\n"
-            f"`.venv/bin/python -m autoimplants.run --validators geometry,pending_stress{case_flag}`\n"
-            "The eight pending stress checks must remain SKIP; do not edit them."
-        )
-        if case_flag:
-            prompt += (
-                "\nThis run designs against an imported patient case committed on the "
-                "branch, not the demo case. Its bundle is a locked input: derive the "
-                "geometry from it, never edit it."
-            )
-        repo_url = run_command(["git", "remote", "get-url", "origin"], worktree)
         client = self.client_factory()
         created = client.create_session(
             prompt=prompt,
             title=f"AutoImplants {run_id} · iteration {number}",
             tags=["autoimplants", run_id, f"revision-{record['revision']}", f"iter-{number}"],
-            structured_output_schema=ITERATION_OUTPUT_SCHEMA,
+            structured_output_schema=PATCH_OUTPUT_SCHEMA,
             max_acu_limit=ACU_PER_ITERATION,
-            repos=[repo_url],
         )
         session = {
             "session_id": created["session_id"],
             "url": created.get("url", ""),
-            "base_sha": base_sha,
+            "token": token,
+            "job_url": self._job_url(token),
             "iteration": number,
             "revision": record["revision"],
             "status": created.get("status", "new"),
             "status_detail": created.get("status_detail"),
-            "structured_output": None,
+            "patches": 0,
         }
         self.store.update(
             run_id,
-            status="devin_running",
+            status="awaiting_patch",
             phase="Devin is engineering the next geometry",
             active_session=session,
             error=None,
         )
-        self._wait_and_integrate(self.store.get(run_id), worktree, client)
+        self._await_patches(self.store.get(run_id), workspace, client)
 
-    def _resume_active(self, record: dict, worktree: Path) -> None:
-        client = self.client_factory()
-        active = record["active_session"]
-        if active.get("structured_output"):
-            self._integrate_result(record, worktree, active["structured_output"])
-            return
-        self.store.update(record["run_id"], status="devin_running", phase="Reconnected to Devin session")
-        self._wait_and_integrate(self.store.get(record["run_id"]), worktree, client)
+    def _resume_active(self, record: dict, workspace: Path) -> None:
+        self.store.update(record["run_id"], status="awaiting_patch", phase="Reconnected to Devin session")
+        self._await_patches(self.store.get(record["run_id"]), workspace, self.client_factory())
 
-    def _wait_and_integrate(self, record: dict, worktree: Path, client: DevinClient) -> None:
+    def _await_patches(self, record: dict, workspace: Path, client: DevinClient) -> None:
         run_id = record["run_id"]
         session_id = record["active_session"]["session_id"]
+        deadline = time.monotonic() + PATCH_TIMEOUT_SECONDS
+        while not self._stop and time.monotonic() < deadline:
+            record = self.store.get(run_id)
+            if record["status"] not in {"awaiting_patch", "validating_result"}:
+                return
+            pending = record.get("pending_patch")
+            if pending:
+                record = self._apply_patch(record, workspace, pending)
+                if record["status"] != "awaiting_patch":
+                    return
+                deadline = time.monotonic() + PATCH_TIMEOUT_SECONDS
+                continue
+            try:
+                payload = client.get_session(session_id)
+            except DevinError:
+                time.sleep(PATCH_POLL_SECONDS)
+                continue
+            self._note_session(run_id, payload, client)
+            if client.is_terminal(payload):
+                output = payload.get("structured_output") or {}
+                if output.get("infeasible"):
+                    self.store.update(
+                        run_id,
+                        status="failed",
+                        phase="Devin reported the case infeasible",
+                        error=output.get("rationale") or "No rationale returned.",
+                        active_session=None,
+                    )
+                    return
+                # A sandbox that could not reach the job URL may hand the design
+                # back through its structured output instead; same validation path.
+                files = output.get("files") or {}
+                if files:
+                    try:
+                        self.submit_patch(
+                            record["active_session"]["token"],
+                            files,
+                            rationale=str(output.get("rationale", "")),
+                            topology_changed=bool(output.get("topology_changed")),
+                        )
+                        continue
+                    except (PermissionError, ValueError) as exc:
+                        self.store.update(
+                            run_id,
+                            status="invalid",
+                            phase="Submitted design rejected",
+                            error=str(exc),
+                            active_session=None,
+                        )
+                        return
+                self.store.update(
+                    run_id,
+                    status="needs_attention",
+                    phase=f"Devin stopped at {client.status_label(payload)}",
+                    error="The session ended without posting a design. Open it, resolve it, then press Resume.",
+                )
+                return
+            time.sleep(PATCH_POLL_SECONDS)
+        self.store.update(
+            run_id,
+            status="needs_attention",
+            phase="No design arrived within the iteration timeout",
+            error="Open the recorded Devin session, then press Resume.",
+        )
 
-        def on_poll(payload: dict) -> None:
-            def update(item: dict) -> None:
-                active = item.get("active_session") or {}
-                active["status"] = payload.get("status")
-                active["status_detail"] = payload.get("status_detail")
-                item["active_session"] = active
+    def _note_session(self, run_id: str, payload: dict, client: DevinClient) -> None:
+        def update(item: dict) -> None:
+            active = item.get("active_session") or {}
+            active["status"] = payload.get("status")
+            active["status_detail"] = payload.get("status_detail")
+            item["active_session"] = active
+            if not item.get("pending_patch"):
                 item["phase"] = f"Devin · {client.status_label(payload)}"
-            self.store.mutate(run_id, update)
+        self.store.mutate(run_id, update)
 
-        final = client.wait(session_id, on_poll=on_poll)
-        output = final.get("structured_output") or {}
-        if final.get("_timed_out") or not output:
-            self.store.update(
-                run_id,
-                status="needs_attention",
-                phase=f"Devin stopped at {client.status_label(final)}",
-                error="Open the recorded Devin session, resolve it, then press Resume.",
-            )
-            return
-
-        def record_output(item: dict) -> None:
-            item["active_session"]["structured_output"] = output
-        record = self.store.mutate(run_id, record_output)
-        self._integrate_result(record, worktree, output)
-
-    def _integrate_result(self, record: dict, worktree: Path, output: dict) -> None:
+    def submit_patch(
+        self,
+        token: str,
+        files: dict[str, str],
+        rationale: str = "",
+        topology_changed: bool = False,
+        infeasible: bool = False,
+    ) -> dict:
+        """Accept a posted design. Runs on the HTTP thread, validates on the worker."""
+        record = self.record_for_token(token)
         run_id = record["run_id"]
-        active = record["active_session"]
-        base_sha = active["base_sha"]
-        branch = record["branch"]
-        number = int(active["iteration"])
-        if output.get("infeasible"):
+        active = record.get("active_session") or {}
+        if active.get("token") != token:
+            raise LookupError("This design job is closed.")
+        if record.get("pending_patch"):
+            raise ValueError("The previous submission is still being validated.")
+        if infeasible:
             self.store.update(
                 run_id,
                 status="failed",
                 phase="Devin reported the case infeasible",
-                error=output.get("rationale") or "No rationale returned.",
+                error=rationale or "No rationale returned.",
+                active_session=None,
             )
-            return
-
-        self.store.update(run_id, status="fetching", phase="Fetching Devin's committed geometry")
-        run_command(["git", "fetch", "origin", branch], worktree, timeout=180)
-        remote = f"origin/{branch}"
-        remote_sha = run_command(["git", "rev-parse", remote], worktree)
-        reported_sha = str(output.get("commit_sha", "")).strip()
-        if not reported_sha or run_command(["git", "rev-parse", reported_sha], worktree) != remote_sha:
-            self.store.update(
-                run_id,
-                status="invalid",
-                phase="Iteration rejected",
-                error="Devin's reported commit does not match the pushed branch head.",
+            return {"status": "closed", "reason": "infeasible"}
+        if not files:
+            raise ValueError("Submit the complete contents of at least one editable file.")
+        locked = violations(sorted(files))
+        if locked:
+            raise PermissionError(
+                "; ".join(f"{path}: {reason}" for path, reason in locked)
             )
-            return
-
-        self.store.update(run_id, status="guarding", phase="Checking locked engineering inputs")
-        if not is_ancestor(base_sha, remote, repo_root=worktree):
-            self.store.update(
-                run_id,
-                status="invalid",
-                phase="Iteration rejected",
-                error="The pushed branch does not descend from the validated iteration base.",
+        unknown = [path for path in sorted(files) if path not in EDITABLE_SOURCES]
+        if unknown:
+            # Membership, not pattern matching: absolute paths, "..", symlinks and
+            # stray artefacts can never name a file inside the workspace.
+            raise ValueError(
+                "Post the complete contents of design sources only: "
+                + ", ".join(EDITABLE_SOURCES)
+                + f". Refused: {', '.join(unknown)}"
             )
-            return
-        clean, violations = check_range(base_sha, remote, repo_root=worktree)
-        if not clean:
-            message = "; ".join(f"{path}: {reason}" for path, reason in violations)
-            self.store.update(run_id, status="invalid", phase="Locked files were modified", error=message)
-            return
+        payload = {path: str(text) for path, text in files.items()}
+        size = sum(len(text.encode("utf-8")) for text in payload.values())
+        if size > MAX_PATCH_BYTES:
+            raise ValueError(f"The submission exceeds the {MAX_PATCH_BYTES // 1024} KB limit")
 
-        run_command(["git", "merge", "--ff-only", remote], worktree)
-        rationale = run_command(["git", "show", "-s", "--format=%B", remote_sha], worktree).strip()
-        files = changed_files(base_sha, remote_sha, repo_root=worktree)
-        self.store.update(run_id, status="validating_result", phase="Independently validating the commit")
-        report, out_dir = self._validate(worktree, record, number)
+        number = int(record["total_iterations"]) + 1
+        staging = self.store.run_dir(run_id) / "patches" / f"{number:03d}"
+        if staging.exists():
+            shutil.rmtree(staging)
+        digest = hashlib.sha256()
+        for path in sorted(payload):
+            target = staging / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(payload[path], encoding="utf-8")
+            digest.update(path.encode("utf-8"))
+            digest.update(payload[path].encode("utf-8"))
+        design_sha = digest.hexdigest()
+        pending = {
+            "token": token,
+            "iteration": number,
+            "dir": str(staging),
+            "paths": sorted(payload),
+            "rationale": rationale,
+            "topology_changed": bool(topology_changed),
+            "design_sha": design_sha,
+            "submitted_at": utc_now(),
+        }
+        self.store.mutate(
+            run_id,
+            lambda item: item.update(
+                {
+                    "pending_patch": pending,
+                    "status": "validating_result",
+                    "phase": f"Executing the design Devin posted (iteration {number})",
+                }
+            ),
+        )
+        return {
+            "status": "accepted",
+            "iteration": number,
+            "paths": pending["paths"],
+            "design_sha": design_sha,
+        }
+
+    def patch_job(self, token: str) -> dict:
+        """What the agent polls: the files to work on, and the last verdict."""
+        record = self.record_for_token(token)
+        active = record.get("active_session") or {}
+        results = record.get("patch_results") or {}
+        result = results.get(token)
+        if record.get("pending_patch", {}) and (record.get("pending_patch") or {}).get("token") == token:
+            status = "validating"
+        elif active.get("token") != token:
+            status = "closed"
+        elif result:
+            status = "report_ready"
+        else:
+            status = "awaiting_patch"
+        workspace = Path(record["workspace"])
+        sources = {}
+        for path in EDITABLE_SOURCES:
+            source = workspace / path
+            if source.exists():
+                sources[path] = source.read_text(encoding="utf-8")
+        case_path = self._case_path(record, workspace)
+        case = case_io.load_case(case_path) if case_path.exists() else None
+        return {
+            "status": status,
+            "run_id": record["run_id"],
+            "case_id": record["case_id"],
+            "iteration": int(record["total_iterations"]) + 1,
+            "iterations_used": int(record["cycle_iteration"]),
+            "iteration_budget": int(record["max_iterations"]),
+            "validators": VALIDATORS.split(","),
+            "editable_files": list(EDITABLE_SOURCES),
+            "locked_globs_hint": list(EDITABLE_GLOBS),
+            "sources": sources,
+            "case": case,
+            "last_result": result,
+        }
+
+    def _apply_patch(self, record: dict, workspace: Path, pending: dict) -> dict:
+        """Execute a posted design in this run's workspace and measure it."""
+        run_id = record["run_id"]
+        number = int(pending["iteration"])
+        self.store.update(
+            run_id,
+            status="validating_result",
+            phase=f"Executing the design Devin posted (iteration {number})",
+        )
+        staging = Path(pending["dir"])
+        for path in pending["paths"]:
+            target = workspace / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(staging / path, target)
+        report, out_dir = self._validate(workspace, record, number)
+        active = record.get("active_session") or {}
         iteration = self._snapshot(
             record,
             report,
             out_dir,
-            commit_sha=remote_sha,
-            rationale=rationale,
+            commit_sha=pending["design_sha"],
+            rationale=pending.get("rationale", ""),
             session_url=active.get("url", ""),
-            topology_changed=bool(output.get("topology_changed")),
-            changed=files,
+            topology_changed=bool(pending.get("topology_changed")),
+            changed=pending["paths"],
         )
+        result = {
+            "iteration": number,
+            "verdict": "converged" if iteration["geometry_converged"] else "still_failing",
+            "failing": [
+                check["id"] for check in iteration["report"]["checks"] if check["status"] == "FAIL"
+            ],
+            "report": iteration["report"],
+            "validated_at": utc_now(),
+        }
 
         def finish(item: dict) -> None:
             item["iterations"].append(iteration)
             item["total_iterations"] = number
             item["cycle_iteration"] = int(item["cycle_iteration"]) + 1
-            item["active_session"] = None
+            item["pending_patch"] = None
             item["error"] = None
+            item.setdefault("patch_results", {})[pending["token"]] = result
+            session = item.get("active_session") or {}
+            session["patches"] = int(session.get("patches", 0)) + 1
+            session["iteration"] = number + 1
+            item["active_session"] = session
             if iteration["geometry_converged"]:
                 item["status"] = "awaiting_review"
                 item["phase"] = "Geometry converged · awaiting surgeon review"
+                item["active_session"] = None
+            elif int(item["cycle_iteration"]) >= int(item["max_iterations"]):
+                item["status"] = "capped"
+                item["phase"] = f"Iteration cap reached ({item['max_iterations']})"
+                item["active_session"] = None
             else:
-                item["status"] = "validating"
-                item["phase"] = "Validated iteration still has geometry failures"
-        self.store.mutate(run_id, finish)
+                item["status"] = "awaiting_patch"
+                item["phase"] = f"Iteration {number} still fails · waiting for the next design"
+        record = self.store.mutate(run_id, finish)
+        if record["status"] == "awaiting_patch" and active.get("session_id"):
+            failing = ", ".join(result["failing"]) or "none"
+            try:
+                self.client_factory().send_message(
+                    active["session_id"],
+                    "Your design was executed against the patient case. Failing checks: "
+                    f"{failing}. GET your job URL for the full report, then post the next "
+                    "design to the same URL.",
+                )
+            except DevinError:
+                pass
+        return record
 
     def review(self, run_id: str, request: "ReviewRequest") -> dict:
         record = self.store.get(run_id)
@@ -839,6 +991,15 @@ class RunManager:
         return result
 
 
+class PatchSubmission(BaseModel):
+    """One posted design: whole files, not a diff."""
+
+    files: dict[str, str] = Field(default_factory=dict)
+    rationale: str = Field(default="", max_length=8000)
+    topology_changed: bool = False
+    infeasible: bool = False
+
+
 class ReviewRequest(BaseModel):
     decision: str = Field(pattern="^(approved_prototype|revision_requested)$")
     reviewer: str = Field(min_length=1, max_length=160)
@@ -859,11 +1020,12 @@ def public_record(record: dict) -> dict:
 def create_app(
     repo_root: Path = REPO_ROOT,
     runtime_root: Path = RUNTIME_ROOT,
-    worktrees_root: Path = WORKTREES_ROOT,
+    workspaces_root: Path = WORKSPACES_ROOT,
     manager: RunManager | None = None,
 ) -> FastAPI:
     repo_root = Path(repo_root).resolve()
-    manager = manager or RunManager(repo_root, runtime_root, worktrees_root)
+    manager = manager or RunManager(repo_root, runtime_root, workspaces_root)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         manager.start()
@@ -1013,8 +1175,8 @@ def create_app(
             raise HTTPException(404, "Iteration not found")
         target = manager.store.run_dir(run_id) / "iterations" / f"{iteration:03d}"
         implant = target / "implant.stl"
-        worktree = Path(record["worktree"])
-        case_path = worktree / "inputs" / "case.json"
+        workspace = Path(record["workspace"])
+        case_path = workspace / "inputs" / "case.json"
         if not case_path.exists():
             case_path = manager.demo_case_path
         case = case_io.set_active_case(case_io.load_case(case_path), case_path)
@@ -1048,6 +1210,31 @@ def create_app(
             return public_record(manager.review(run_id, request))
         except KeyError as exc:
             raise HTTPException(404, "Run not found") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/api/patch/{token}")
+    def patch_job(token: str) -> dict:
+        """The design agent's own endpoint: what to work on, and the last verdict."""
+        try:
+            return manager.patch_job(token)
+        except LookupError as exc:
+            raise HTTPException(404, "Unknown design job") from exc
+
+    @app.post("/api/patch/{token}")
+    def submit_patch(token: str, submission: PatchSubmission) -> dict:
+        try:
+            return manager.submit_patch(
+                token,
+                submission.files,
+                rationale=submission.rationale,
+                topology_changed=submission.topology_changed,
+                infeasible=submission.infeasible,
+            )
+        except LookupError as exc:
+            raise HTTPException(404, str(exc) or "Unknown design job") from exc
+        except PermissionError as exc:
+            raise HTTPException(403, f"Locked files cannot be changed: {exc}") from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
