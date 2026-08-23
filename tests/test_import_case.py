@@ -136,3 +136,42 @@ def test_imported_case_runs_the_existing_geometry_validator(imported):
 
     assert report.by_id("bone_conformance_gap") is not None
     assert report.meta["bone_mesh"].endswith("bone.stl")
+
+
+# -- non-plate anatomy --------------------------------------------------------
+
+CRANIAL_DIR = REPO_ROOT / "real_cases" / "synthetic_patch"
+
+
+@pytest.fixture
+def imported_patch(tmp_path):
+    report, case_path = import_case.import_case(
+        CRANIAL_DIR / "surgical_plan.json",
+        CRANIAL_DIR / "bone.stl",
+        out_dir=tmp_path / "generated",
+    )
+    assert report.passed, report.summary()
+    assert case_path is not None
+    return case_path
+
+
+def test_patch_plan_carries_its_family_into_the_case(imported_patch):
+    """Without this the generator would build a plate on a cranial vault."""
+    case = json.loads(imported_patch.read_text("utf-8"))
+    assert case["implant"]["family"] == "conformal_patch"
+    assert case["implant"]["region"]["type"] == "screw_span"
+
+
+def test_patch_case_gets_no_invented_shaft_envelope(imported_patch):
+    envelope = json.loads(imported_patch.read_text("utf-8"))["envelope"]
+    assert "footprint_z_mm" not in envelope
+    assert "max_length_mm" not in envelope
+    assert envelope["max_footprint_mm"] > 0
+
+
+def test_patch_case_builds_the_patch_family(imported_patch):
+    from autoimplants import case_io, params
+
+    case = case_io.load_case(imported_patch)
+    resolved = params.for_case(params.default_params(), case)
+    assert resolved["family"] == "conformal_patch"

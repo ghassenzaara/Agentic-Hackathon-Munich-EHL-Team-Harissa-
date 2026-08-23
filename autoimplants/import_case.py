@@ -46,6 +46,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MAX_WIDTH_MM = 20.0
 DEFAULT_MAX_STANDOFF_MM = 6.0
 DEFAULT_THICKNESS_BOUNDS_MM = {"min": 2.5, "max": 4.5}
+# A patch spans a defect rather than carrying a shaft, and the vault and blade
+# devices it covers are made thinner than a long-bone plate.
+DEFAULT_PATCH_THICKNESS_BOUNDS_MM = {"min": 1.5, "max": 4.5}
 
 PROVENANCE = (
     "REAL CT-DERIVED -- bone geometry segmented from patient imaging; surgical "
@@ -68,14 +71,25 @@ def build_case_json(plan: dict, out_dir: Path) -> dict:
     Paths are written relative to the case file so the generated directory is
     self-contained and can be moved or archived whole.
     """
-    z0, z1 = (float(v) for v in plan["footprint_z_mm"])
+    family = surgical_plan.implant_family(plan)
     envelope = dict(plan.get("envelope") or {})
-    envelope.setdefault("footprint_z_mm", [z0, z1])
-    envelope.setdefault("aspect", f"{plan['approach']} {plan['bone']} shaft")
-    envelope.setdefault("max_length_mm", round(z1 - z0, 3))
-    envelope.setdefault("max_width_mm", DEFAULT_MAX_WIDTH_MM)
     envelope.setdefault("max_standoff_mm", DEFAULT_MAX_STANDOFF_MM)
-    envelope.setdefault("thickness_bounds_mm", dict(DEFAULT_THICKNESS_BOUNDS_MM))
+    if family == "plate":
+        z0, z1 = (float(v) for v in plan["footprint_z_mm"])
+        envelope.setdefault("footprint_z_mm", [z0, z1])
+        envelope.setdefault("aspect", f"{plan['approach']} {plan['bone']} shaft")
+        envelope.setdefault("max_length_mm", round(z1 - z0, 3))
+        envelope.setdefault("max_width_mm", DEFAULT_MAX_WIDTH_MM)
+        envelope.setdefault("thickness_bounds_mm", dict(DEFAULT_THICKNESS_BOUNDS_MM))
+    else:
+        # A patch is bounded by its region, so a length/width envelope would be
+        # a made-up limit; its footprint budget comes from the plan or from the
+        # span the screws already describe.
+        envelope.setdefault("aspect", f"{plan['approach']} {plan['bone']} surface")
+        envelope.setdefault(
+            "max_footprint_mm", round(_screw_span_mm(plan) + 2.0 * _region_margin(plan), 1)
+        )
+        envelope.setdefault("thickness_bounds_mm", dict(DEFAULT_PATCH_THICKNESS_BOUNDS_MM))
 
     thresholds = dict(plan["thresholds"])
     thresholds.setdefault("require_all_screws", len(plan["screws"]))
@@ -99,6 +113,9 @@ def build_case_json(plan: dict, out_dir: Path) -> dict:
         "thresholds": thresholds,
     }
 
+    if family != "plate":
+        case["implant"] = dict(plan["implant"])
+
     if plan.get("load_cases"):
         case["load_cases"] = plan["load_cases"]
     if plan.get("load_notes"):
@@ -107,14 +124,26 @@ def build_case_json(plan: dict, out_dir: Path) -> dict:
         case["iteration_budget"] = plan["iteration_budget"]
 
     case["threshold_notes"] = {
-        "unenforced": "max_stress_MPa and min_screw_pullout_N are read only to "
-                      "populate limits -- every stress check returns SKIP until "
-                      "validators/stress.py is real.",
+        "unenforced": "min_screw_pullout_N is read only to populate a limit. "
+                      "max_stress_MPa is solved for real, but only when the plan "
+                      "declares load_cases: with none the stress checks report "
+                      "SKIP rather than a number.",
         "frame": "All coordinates are in the repo frame (+Z along the shaft from "
                  "the proximal landmark, +X the mount aspect). The rigid transform "
                  "from the plan's original frame is recorded in frame_transform.json.",
     }
     return case
+
+
+def _region_margin(plan: dict) -> float:
+    return float(((plan.get("implant") or {}).get("region") or {})["margin_mm"])
+
+
+def _screw_span_mm(plan: dict) -> float:
+    """Largest distance between two planned screw entries."""
+    entries = np.array([s["entry_mm"] for s in plan["screws"]], dtype=float)
+    deltas = entries[:, None, :] - entries[None, :, :]
+    return float(np.linalg.norm(deltas, axis=-1).max())
 
 
 def build_screw_positions(plan: dict) -> dict:

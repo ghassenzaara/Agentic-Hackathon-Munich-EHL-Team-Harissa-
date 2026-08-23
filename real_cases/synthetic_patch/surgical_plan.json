@@ -1,0 +1,161 @@
+{
+ "case_id": "SYNTH-CRANIAL-001",
+ "provenance": "SYNTHETIC -- fabricated engineering constraints on an analytic cranial vault. Exists to exercise the conformal-patch implant family on anatomy with no shaft axis. Not patient data. No clinical claim.",
+ "bone": "cranium",
+ "side": "right",
+ "approach": "right parietal",
+ "implant": {
+  "family": "conformal_patch",
+  "region": {
+   "type": "screw_span",
+   "margin_mm": 16.0
+  },
+  "region_note": "The screws ring the defect at 30 mm, so a 16 mm margin around them spans the craniectomy and lands on intact bone all the way round."
+ },
+ "coordinate_frame": {
+  "note": "The fixture mesh is already in the repo frame, so the frame is stated explicitly and the import transform is the identity.",
+  "axes": {
+   "shaft": [
+    0.0,
+    0.0,
+    100.0
+   ],
+   "mount_side": [
+    10.0,
+    0.0,
+    0.0
+   ],
+   "origin_mm": [
+    0.0,
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "screws": [
+  {
+   "id": "cranial_1",
+   "entry_mm": [
+    53.5638,
+    -9.6217,
+    51.1281
+   ],
+   "direction": [
+    -0.715515,
+    0.129903,
+    -0.686414
+   ],
+   "diameter_mm": 2.4,
+   "length_mm": 6.0,
+   "note": "self-drilling cranial screw, driven along the local vault normal"
+  },
+  {
+   "id": "cranial_2",
+   "entry_mm": [
+    66.5535,
+    8.7268,
+    36.2075
+   ],
+   "direction": [
+    -0.872002,
+    -0.115,
+    -0.475801
+   ],
+   "diameter_mm": 2.4,
+   "length_mm": 6.0,
+   "note": "self-drilling cranial screw, driven along the local vault normal"
+  },
+  {
+   "id": "cranial_3",
+   "entry_mm": [
+    55.9863,
+    33.2138,
+    35.0911
+   ],
+   "direction": [
+    -0.753392,
+    -0.453895,
+    -0.475795
+   ],
+   "diameter_mm": 2.4,
+   "length_mm": 6.0,
+   "note": "self-drilling cranial screw, driven along the local vault normal"
+  },
+  {
+   "id": "cranial_4",
+   "entry_mm": [
+    34.6549,
+    38.7958,
+    49.0751
+   ],
+   "direction": [
+    -0.478326,
+    -0.54773,
+    -0.686437
+   ],
+   "diameter_mm": 2.4,
+   "length_mm": 6.0,
+   "note": "self-drilling cranial screw, driven along the local vault normal"
+  },
+  {
+   "id": "cranial_5",
+   "entry_mm": [
+    23.3115,
+    21.5118,
+    64.491
+   ],
+   "direction": [
+    -0.321795,
+    -0.302795,
+    -0.897086
+   ],
+   "diameter_mm": 2.4,
+   "length_mm": 6.0,
+   "note": "self-drilling cranial screw, driven along the local vault normal"
+  },
+  {
+   "id": "cranial_6",
+   "entry_mm": [
+    32.2995,
+    -2.5823,
+    65.2412
+   ],
+   "direction": [
+    -0.440392,
+    0.035999,
+    -0.897084
+   ],
+   "diameter_mm": 2.4,
+   "length_mm": 6.0,
+   "note": "self-drilling cranial screw, driven along the local vault normal"
+  }
+ ],
+ "keepouts": [],
+ "material": {
+  "name": "Ti-6Al-4V (Grade 5), annealed",
+  "youngs_modulus_GPa": 114.0,
+  "poisson_ratio": 0.34,
+  "yield_strength_MPa": 880.0,
+  "density_g_cm3": 4.43,
+  "allowable_stress_MPa": 350.0
+ },
+ "envelope": {
+  "aspect": "right parietal vault, outer table",
+  "max_footprint_mm": 110.0,
+  "max_standoff_mm": 5.0,
+  "thickness_bounds_mm": {
+   "min": 1.5,
+   "max": 4.0
+  }
+ },
+ "thresholds": {
+  "min_wall_mm": 1.5,
+  "max_bone_gap_mm": 1.5,
+  "min_bone_gap_mm": 0.05,
+  "max_implant_mass_g": 40.0,
+  "max_keepout_encroach_mm": 0.0,
+  "require_watertight": true,
+  "require_all_screws": 6
+ },
+ "iteration_budget": 3
+}

@@ -221,6 +221,32 @@ For the committed synthetic CT phantom:
   --out out_ct/viewer.html
 ```
 
+### Uploading a non-long-bone case
+
+The plan chooses the implant family, so anatomy without a shaft is a plan
+difference, not a code path: state
+
+```json
+"implant": {"family": "conformal_patch", "region": {"type": "screw_span", "margin_mm": 15.0}}
+```
+
+and omit `footprint_z_mm` -- a cranial vault or a scapular blade has a surface
+region, not a z range along an axis, and the intake asks for one only from the
+`plate` family. Two ready cases are committed:
+
+```powershell
+& $py -m autoimplants.import_case `
+  --case real_cases/synthetic_scapula/surgical_plan.json `
+  --bone real_cases/synthetic_scapula/bone.stl
+& $py -m autoimplants.run `
+  --case real_cases/SYNTH-SCAPULA-001/generated/case.json `
+  --validators geometry,fea
+```
+
+`real_cases/synthetic_patch/` is the cranial equivalent. Both are uploadable
+through the UI as-is (`bone.stl` + `surgical_plan.json`), and both report stress
+as `SKIP`: neither plan declares a load case.
+
 All DICOM and generated case artifacts are gitignored. Never add patient
 imaging to this repository. The generated flat baseline is expected to report
 `FAIL`; success here means every stage completed and produced its artifacts.
