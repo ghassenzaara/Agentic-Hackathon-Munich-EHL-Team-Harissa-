@@ -1,0 +1,56 @@
+{
+  "case_id": "SYNTH-CRANIAL-001",
+  "provenance": "SYNTHETIC -- fabricated engineering constraints on an analytic cranial vault. Exists to exercise the conformal-patch implant family on anatomy with no shaft axis. Not patient data. No clinical claim.",
+  "inputs": {
+    "bone_mesh": "bone.stl",
+    "screw_positions": "screw_positions.json"
+  },
+  "implant": {
+    "family": "conformal_patch",
+    "region": {
+      "type": "screw_span",
+      "margin_mm": 16.0
+    },
+    "region_note": "The screws ring the defect at 30 mm, so a 16 mm margin around them spans the craniectomy and lands on intact bone all the way round."
+  },
+  "material": {
+    "name": "Ti-6Al-4V (Grade 5), annealed",
+    "youngs_modulus_GPa": 114.0,
+    "poisson_ratio": 0.34,
+    "yield_strength_MPa": 880.0,
+    "density_g_cm3": 4.43,
+    "allowable_stress_MPa": 350.0
+  },
+  "envelope": {
+    "aspect": "right parietal vault, outer table",
+    "max_footprint_mm": 110.0,
+    "max_standoff_mm": 5.0,
+    "thickness_bounds_mm": {
+      "min": 1.5,
+      "max": 4.0
+    }
+  },
+  "thresholds": {
+    "min_wall_mm": 1.5,
+    "max_bone_gap_mm": 1.5,
+    "min_bone_gap_mm": 0.05,
+    "max_implant_mass_g": 40.0,
+    "max_keepout_encroach_mm": 0.0,
+    "require_watertight": true,
+    "require_all_screws": 6
+  },
+  "threshold_notes": {
+    "min_wall_mm": "Cranial devices are thin: 1.5 mm is a plausible manufacturing floor for a titanium cranioplasty plate, against 2.5 mm for a load-bearing femoral plate.",
+    "stress": "No load case is declared. A cranioplasty is not load-bearing in the way a femoral plate is, and inventing a load to make a stress number appear would be worse than reporting none: the stress validator reports SKIP for this case."
+  },
+  "defect": {
+    "type": "sphere",
+    "center_mm": [
+      49.883,
+      17.459,
+      57.366
+    ],
+    "radius_mm": 22.0,
+    "note": "the craniectomy the device reconstructs, cut out of the bone mesh"
+  }
+}

@@ -26,6 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from .. import case_io
 from ..bone import load_bone, surface_grid
@@ -486,18 +487,320 @@ def check_keepouts(mesh, case: dict) -> list[Check]:
     return checks
 
 
+# --- anatomy-agnostic checks -------------------------------------------------
+#
+# The three checks above that measure along +X (envelope span, min wall, bone gap)
+# are correct for a plate on a shaft, where import_case has put the mount aspect
+# on +X and the shaft on Z. They are meaningless on a cranial or pelvic device,
+# whose surface has no such axis. These replace them for the conformal-patch
+# family, measuring along surface normals and nearest-surface distance instead --
+# so they hold on any anatomy, and they are the same physical quantities.
+
+N_SURFACE_SAMPLES = 4000
+
+
+def _surface_samples(mesh, n: int = N_SURFACE_SAMPLES):
+    points, face_idx = mesh.sample(n, return_index=True)
+    return points, mesh.face_normals[face_idx]
+
+
+def _edge_distance(mesh, points: np.ndarray) -> np.ndarray:
+    """Distance from each point to the nearest sharp edge of the part.
+
+    Wall thickness is not defined at a corner: a sample sitting on the rim band a
+    fraction of a millimetre from the inner surface reads that neighbour as its
+    opposing wall and reports a sliver. The plate check insets its sampling from
+    the bounding box for exactly this reason (EDGE_INSET_MM); a shell has no box to
+    inset from, so the edges themselves are measured.
+    """
+    sharp = mesh.face_adjacency_edges[mesh.face_adjacency_angles > np.pi / 4]
+    if not len(sharp):
+        return np.full(len(points), np.inf)
+
+    # A few points per edge is enough: they are mesh-resolution short.
+    a, b = mesh.vertices[sharp[:, 0]], mesh.vertices[sharp[:, 1]]
+    ts = np.linspace(0.0, 1.0, 4)[:, None, None]
+    on_edges = (a[None] + (b - a)[None] * ts).reshape(-1, 3)
+    return cKDTree(on_edges).query(points)[0]
+
+
+def check_shell_thickness(mesh, case: dict) -> Check:
+    """Thinnest wall measured *through* the part, along its own inward normals.
+
+    A shell wrapped over curved anatomy has no axis to sample chords along: the
+    honest measurement is to start just inside a surface point and cast against
+    the inward normal, which gives the local wall wherever the surface faces.
+    """
+    limit = float(case.get("thresholds", {}).get("min_wall_mm", 0.0))
+    points, normals = _surface_samples(mesh)
+
+    # Corners are excluded, by half a wall: see _edge_distance. Anything thinner
+    # than the limit further than that from an edge is still caught.
+    away = _edge_distance(mesh, points) > 0.5 * limit
+    if away.any():
+        points, normals = points[away], normals[away]
+
+    origins = points - normals * 1e-4
+    hits, ray_idx, hit_faces = mesh.ray.intersects_location(
+        ray_origins=origins, ray_directions=-normals
+    )
+    if not len(hits):
+        return Check(
+            id="min_wall_thickness",
+            status=FAIL,
+            unit="mm",
+            message="could not sample any wall thickness -- the part may be open or inverted",
+        )
+
+    depth = np.linalg.norm(hits - origins[ray_idx], axis=1)
+    # Only count a hit on a surface that faces back at the one we started from.
+    # A ray leaving a point next to a screw bore grazes the bore wall a hundredth
+    # of a millimetre away, and calling that the wall thickness would report every
+    # drilled part as 0.01 mm thick. Thickness is the distance between *opposing*
+    # surfaces, which is what this restriction says.
+    opposing = (
+        np.einsum("ij,ij->i", mesh.face_normals[hit_faces], normals[ray_idx]) < -0.5
+    )
+    depth, ray_idx = depth[opposing], ray_idx[opposing]
+    if not len(depth):
+        return Check(
+            id="min_wall_thickness",
+            status=FAIL,
+            unit="mm",
+            message="no opposing surface pair found -- the part may be a sheet, not a solid",
+        )
+
+    # Per-ray minimum: the nearest opposing surface is this point's wall.
+    worst = np.full(len(points), np.inf)
+    np.minimum.at(worst, ray_idx, depth)
+    finite = np.isfinite(worst)
+    thinnest = float(worst[finite].min())
+    where = points[finite][int(np.argmin(worst[finite]))]
+
+    return Check(
+        id="min_wall_thickness",
+        status=PASS if thinnest >= limit - 1e-6 else FAIL,
+        value=round(thinnest, 3),
+        limit=limit,
+        unit="mm",
+        location=[round(float(c), 3) for c in where],
+        message=(
+            "thinnest wall along the surface normals clears the manufacturing minimum"
+            if thinnest >= limit - 1e-6
+            else f"thinnest wall is {thinnest:.2f} mm, below the {limit} mm minimum"
+        ),
+    )
+
+
+# A surface more than 60 degrees off the fixation direction is not a seat: it is a
+# wall the device passes, and measuring a gap to it says nothing about conformance.
+SEAT_COS_LIMIT = 0.5
+
+
+def _seating_normals(bone, case: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Bone vertex indices that could seat the device, and their outward normals.
+
+    A resection leaves cut walls standing perpendicular to the surface the device
+    sits on. Those walls are bone, they are inside the footprint, and their normals
+    point sideways across the defect -- so a gap measured along them reads the
+    thickness of the bone that was removed, not how well the device follows the
+    anatomy. The seat is the surface the screws are driven into, which is the one
+    piece of orientation the plan always carries (the region selection in
+    autoimplants.patch uses the same criterion).
+    """
+    normals = bone.vertex_normals
+    screws = _screws(case)
+    if not screws:
+        return np.arange(len(bone.vertices)), normals
+
+    directions = np.array([s["direction"] for s in screws], dtype=float)
+    entries = np.array([s["entry_mm"] for s in screws], dtype=float)
+    nearest = np.argmin(
+        np.linalg.norm(bone.vertices[:, None, :] - entries[None, :, :], axis=2), axis=1
+    )
+    facing = np.einsum("ij,ij->i", normals, -directions[nearest]) > SEAT_COS_LIMIT
+    return np.flatnonzero(facing), normals
+
+
+def _gaps_under_device(mesh, bone, case: dict):
+    """(bone point, gap) for every bone vertex the device actually covers.
+
+    "Under the device" is decided by casting each bone vertex's own outward normal
+    at the implant: if the ray hits, that bone point is covered and the hit
+    distance is the gap there. This is the anatomy-free version of the plate
+    check's +X cast, and it answers the two questions a nearest-distance search
+    gets wrong -- bone on the far side of a thin bone, and bone just outside the
+    footprint, are simply not hit. Bone across a defect is not hit either, which
+    is correct: there is no bone there to conform to.
+    """
+    seats, normals = _seating_normals(bone, case)
+    origins = bone.vertices[seats] + normals[seats] * 1e-4
+    hits, ray_idx, hit_faces = mesh.ray.intersects_location(
+        ray_origins=origins, ray_directions=normals[seats]
+    )
+    if not len(hits):
+        return np.zeros((0, 3)), np.zeros(0)
+
+    # Only a device face turned back at the bone is seating on it. A bone point
+    # under the device's edge sees the underside obliquely, across the resection it
+    # bridges, and that distance is the depth of the cut rather than a gap the
+    # design could close.
+    facing = (
+        np.einsum("ij,ij->i", mesh.face_normals[hit_faces], normals[seats][ray_idx])
+        < -0.8
+    )
+    hits, ray_idx = hits[facing], ray_idx[facing]
+    if not len(hits):
+        return np.zeros((0, 3)), np.zeros(0)
+
+    distance = np.linalg.norm(hits - origins[ray_idx], axis=1)
+    # Nearest hit per bone vertex: the near face of the device is the gap.
+    nearest = np.full(len(seats), np.inf)
+    np.minimum.at(nearest, ray_idx, distance)
+    covered = np.isfinite(nearest)
+    points, gaps = bone.vertices[seats][covered], nearest[covered]
+
+    # A bone point inside the implant is a negative gap, not a small one: the
+    # surfaces have crossed. check_bone_collision reports the same fact from the
+    # implant's side; this keeps the clearance number honest.
+    inside = _contains_batched(mesh, points)
+    gaps = np.where(inside, -gaps, gaps)
+    return points, gaps
+
+
+def check_surface_conformance(mesh, case: dict) -> list[Check]:
+    """The bone-implant gap for a device with no mount axis.
+
+    Same two bounds as the plate check, and the same reasoning: too large means
+    the device does not follow the anatomy, too small means it strips the
+    periosteum. Only the measurement differs -- along the bone's own normals
+    rather than along an assumed mount direction.
+    """
+    thresholds = case.get("thresholds", {})
+    max_limit = float(thresholds.get("max_bone_gap_mm", 1e9))
+    min_limit = thresholds.get("min_bone_gap_mm")
+    bone = _bone(case)
+
+    points, gaps = _gaps_under_device(mesh, bone, case)
+    if not len(points):
+        return [
+            Check(id="bone_conformance_gap", status=FAIL, unit="mm",
+                  message="no bone surface lies under the device -- it is not seated"),
+            Check(id="bone_clearance_min", status=FAIL, unit="mm",
+                  message="no bone surface lies under the device -- it is not seated"),
+        ]
+
+    worst, tight = int(np.argmax(gaps)), int(np.argmin(gaps))
+    worst_gap, tight_gap = float(gaps[worst]), float(gaps[tight])
+    ok_max = worst_gap <= max_limit + 1e-6
+    ok_min = min_limit is None or tight_gap >= float(min_limit) - 1e-6
+
+    return [
+        Check(
+            id="bone_conformance_gap",
+            status=PASS if ok_max else FAIL,
+            value=round(worst_gap, 3),
+            limit=max_limit,
+            unit="mm",
+            location=[round(float(c), 3) for c in points[worst]],
+            message=(
+                "device follows the bone surface within tolerance"
+                if ok_max
+                else f"device stands {worst_gap:.2f} mm off the bone under its footprint"
+            ),
+        ),
+        Check(
+            id="bone_clearance_min",
+            status=PASS if ok_min else FAIL,
+            value=round(tight_gap, 3),
+            limit=min_limit,
+            unit="mm",
+            location=[round(float(c), 3) for c in points[tight]],
+            message=(
+                "device keeps a periosteal clearance off the bone"
+                if ok_min
+                else f"device sits {tight_gap:.2f} mm from the bone"
+                     + (" -- the surface has crossed into the bone" if tight_gap < 0
+                        else " -- contact this tight strips the periosteum")
+            ),
+        ),
+    ]
+
+
+def check_surface_envelope(mesh, case: dict) -> list[Check]:
+    """Size and protrusion without naming an axis.
+
+    ``envelope_footprint`` is the largest span of the part in any direction, so one
+    limit covers a device that is not aligned with the frame. ``envelope_standoff``
+    is how far the outer surface stands off the bone, which is the soft-tissue
+    question the plate check answers along +X.
+    """
+    env = case.get("envelope", {})
+    span = float(np.ptp(mesh.bounds, axis=0).max())
+    footprint_limit = env.get("max_footprint_mm", env.get("max_length_mm", 1e9))
+
+    bone = _bone(case)
+    # Standoff is how far the device stands proud of the bone *where it sits on
+    # it*, measured along the bone's own normal -- the soft-tissue question. It is
+    # not the distance to the nearest bone: over a defect the nearest bone is the
+    # rim, one defect-radius away, and calling that a 22 mm protrusion would fail
+    # every reconstruction for spanning the hole it exists to span.
+    seats, normals = _seating_normals(bone, case)
+    origins = bone.vertices[seats] + normals[seats] * 1e-4
+    hits, ray_idx, _ = mesh.ray.intersects_location(
+        ray_origins=origins, ray_directions=normals[seats]
+    )
+    if len(hits):
+        # Farthest hit along the normal: the outer surface of the device.
+        depth = np.linalg.norm(hits - origins[ray_idx], axis=1)
+        standoff = float(depth.max())
+    else:
+        standoff = 0.0
+
+    return [
+        Check(
+            id="envelope_footprint",
+            status=PASS if span <= float(footprint_limit) + 1e-6 else FAIL,
+            value=round(span, 3),
+            limit=footprint_limit,
+            unit="mm",
+            message="largest span of the device in any direction",
+        ),
+        Check(
+            id="envelope_standoff",
+            status=PASS if standoff <= float(env.get("max_standoff_mm", 1e9)) + 1e-6 else FAIL,
+            value=round(standoff, 3),
+            limit=env.get("max_standoff_mm"),
+            unit="mm",
+            message="outer surface protrusion beyond the bone -- soft tissue clearance",
+        ),
+    ]
+
+
 # --- frozen entry point -----------------------------------------------------
+
+
+def implant_family(case: dict) -> str:
+    return (case.get("implant") or {}).get("family", "plate")
 
 
 def validate(implant_path: str, case: dict) -> Report:
     mesh = _load(implant_path)
+    family = implant_family(case)
 
     checks: list[Check] = [check_watertight(mesh, case)]
-    checks += check_envelope(mesh, case)
-    checks.append(check_min_wall(mesh, case))
+    if family == "plate":
+        checks += check_envelope(mesh, case)
+        checks.append(check_min_wall(mesh, case))
+    else:
+        checks += check_surface_envelope(mesh, case)
+        checks.append(check_shell_thickness(mesh, case))
     checks.append(check_mass(mesh, case))
     checks.append(check_bone_collision(mesh, case))
-    checks += check_bone_conformance(mesh, case)
+    checks += (
+        check_bone_conformance(mesh, case) if family == "plate"
+        else check_surface_conformance(mesh, case)
+    )
     checks += check_screws(mesh, case)
     checks += check_keepouts(mesh, case)
 
@@ -505,6 +808,7 @@ def validate(implant_path: str, case: dict) -> Report:
         checks,
         meta={
             "validator": "geometry",
+            "implant_family": family,
             "triangles": int(len(mesh.faces)),
             "volume_mm3": round(float(mesh.volume), 2),
             "bone_mesh": str(case_io.bone_path(case)),

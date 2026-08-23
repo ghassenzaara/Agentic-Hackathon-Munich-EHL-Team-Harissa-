@@ -1,0 +1,100 @@
+{
+  "screws": [
+    {
+      "id": "cranial_1",
+      "entry_mm": [
+        55.529,
+        -10.082,
+        53.274
+      ],
+      "direction": [
+        -0.7155,
+        0.1299,
+        -0.6864
+      ],
+      "diameter_mm": 2.4,
+      "length_mm": 6.0,
+      "note": "self-drilling cranial screw, driven along the local vault normal"
+    },
+    {
+      "id": "cranial_2",
+      "entry_mm": [
+        67.676,
+        8.928,
+        36.926
+      ],
+      "direction": [
+        -0.872,
+        -0.115,
+        -0.4758
+      ],
+      "diameter_mm": 2.4,
+      "length_mm": 6.0,
+      "note": "self-drilling cranial screw, driven along the local vault normal"
+    },
+    {
+      "id": "cranial_3",
+      "entry_mm": [
+        58.472,
+        35.224,
+        36.926
+      ],
+      "direction": [
+        -0.7534,
+        -0.4539,
+        -0.4758
+      ],
+      "diameter_mm": 2.4,
+      "length_mm": 6.0,
+      "note": "self-drilling cranial screw, driven along the local vault normal"
+    },
+    {
+      "id": "cranial_4",
+      "entry_mm": [
+        37.122,
+        42.51,
+        53.274
+      ],
+      "direction": [
+        -0.4783,
+        -0.5477,
+        -0.6864
+      ],
+      "diameter_mm": 2.4,
+      "length_mm": 6.0,
+      "note": "self-drilling cranial screw, driven along the local vault normal"
+    },
+    {
+      "id": "cranial_5",
+      "entry_mm": [
+        24.975,
+        23.5,
+        69.623
+      ],
+      "direction": [
+        -0.3218,
+        -0.3028,
+        -0.8971
+      ],
+      "diameter_mm": 2.4,
+      "length_mm": 6.0,
+      "note": "self-drilling cranial screw, driven along the local vault normal"
+    },
+    {
+      "id": "cranial_6",
+      "entry_mm": [
+        34.179,
+        -2.796,
+        69.623
+      ],
+      "direction": [
+        -0.4404,
+        0.036,
+        -0.8971
+      ],
+      "diameter_mm": 2.4,
+      "length_mm": 6.0,
+      "note": "self-drilling cranial screw, driven along the local vault normal"
+    }
+  ]
+}

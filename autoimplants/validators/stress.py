@@ -140,6 +140,28 @@ def validate(implant_path: str, case: dict) -> Report:
 
     from .. import case_io  # local import keeps the stub path dependency-free
 
+    moment_nmm, axial_n = _loads(case)
+    if moment_nmm <= 0.0 and axial_n <= 0.0:
+        # No load case declared. Running the model anyway would report 0 MPa
+        # against the allowable and print PASS, which reads as "mechanically
+        # checked" when nothing was checked. A case that does not state its loads
+        # gets SKIP, and the loop is told why.
+        return Report.from_checks(
+            [
+                Check(
+                    id=cid,
+                    status=SKIP,
+                    unit="MPa" if cid != "screw_pullout_min" else "N",
+                    message=(
+                        "the case declares no load_cases, so there is no load to "
+                        "resolve -- stress is unevaluated, not satisfied"
+                    ),
+                )
+                for cid in CHECK_IDS
+            ],
+            meta={"validator": "stress", "skipped": "no load_cases declared"},
+        )
+
     screws = case_io.load_screws(case)
     screw_zs = np.array([s["entry_mm"][2] for s in screws], dtype=float)
 
@@ -154,8 +176,6 @@ def validate(implant_path: str, case: dict) -> Report:
             "stress_max_bending",
             "no cross-section carried any material -- the part may be empty",
         )
-
-    moment_nmm, axial_n = _loads(case)
 
     z_mid = 0.5 * (float(screw_zs.min()) + float(screw_zs.max()))
     half_span = 0.5 * (float(screw_zs.max()) - float(screw_zs.min()))

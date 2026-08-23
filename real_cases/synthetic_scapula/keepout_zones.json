@@ -1,0 +1,15 @@
+{
+  "zones": [
+    {
+      "id": "suprascapular_notch_corridor",
+      "type": "sphere",
+      "center_mm": [
+        34.0,
+        -30.0,
+        -2.288
+      ],
+      "radius_mm": 9.0,
+      "note": "SYNTHETIC stand-in for a neurovascular corridor near the blade margin; no anatomy was measured to place it."
+    }
+  ]
+}
