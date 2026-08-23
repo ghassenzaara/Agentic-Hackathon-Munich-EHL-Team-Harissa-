@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     rel = case_path.relative_to(REPO_ROOT) if case_path.is_relative_to(REPO_ROOT) else case_path
     print(f"\nimported case written to {rel.parent}")
     print("run it with:")
-    print(f"  python -m autoimplants.run --case {rel.as_posix()} --validators geometry,stress")
+    print(f"  python -m autoimplants.run --case {rel.as_posix()} --validators geometry,fea")
     return 0
 
 

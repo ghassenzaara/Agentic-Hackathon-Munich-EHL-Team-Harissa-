@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from autoimplants.contracts import FAIL, PASS, SKIP, Check, Report
 from autoimplants.server import (
     EDITABLE_SOURCES,
+    VALIDATORS,
     ReviewRequest,
     RunManager,
     RunStore,
@@ -18,6 +19,7 @@ from autoimplants.server import (
     extract_series,
 )
 from autoimplants.validators import pending_stress
+from autoimplants.validators.fea import FIELD_NAME as STRESS_FIELD_NAME
 from autoimplants.validators.stress import CHECK_IDS
 
 
@@ -228,6 +230,43 @@ def test_pending_stress_is_eight_visible_skips():
     assert len(report.checks) == 8
     assert {check.status for check in report.checks} == {SKIP}
     assert report.passed is True
+
+
+def test_iteration_publishes_and_serves_the_solved_stress_field(tmp_path):
+    """The field is an audited artifact, not a side file: hashed, listed, servable."""
+    manager = RunManager(tmp_path / "repo", tmp_path / "runtime", tmp_path / "workspaces")
+    record = manager.store.put(
+        {"run_id": "field-run", "status": "validating", "created_at": "now", "iterations": []}
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "implant.stl").write_bytes(b"solid\n")
+    (out_dir / STRESS_FIELD_NAME).write_text(
+        json.dumps({"vertices": [[0.0, 0.0, 0.0]], "von_mises_MPa": [12.5], "max_MPa": 12.5})
+    )
+    report = Report.from_checks([Check(id="fea_max_von_mises", status=PASS, value=12.5)], iteration=0)
+
+    iteration = manager._snapshot(record, report, out_dir)
+
+    assert STRESS_FIELD_NAME in iteration["artifact_hashes"]
+    assert iteration["artifacts"]["stress_field"].endswith(f"artifacts/{STRESS_FIELD_NAME}")
+
+    client = TestClient(
+        create_app(
+            manager.repo_root,
+            tmp_path / "runtime",
+            tmp_path / "workspaces",
+            manager=manager,
+        )
+    )
+    served = client.get(f"/api/runs/field-run/iterations/0/artifacts/{STRESS_FIELD_NAME}")
+    assert served.status_code == 200
+    assert served.json()["max_MPa"] == 12.5
+
+
+def test_the_live_workflow_runs_the_solver_not_a_placeholder():
+    assert "fea" in VALIDATORS.split(",")
+    assert "pending_stress" not in VALIDATORS
 
 
 def test_rejection_is_append_only_and_gets_fresh_cycle(tmp_path, monkeypatch):

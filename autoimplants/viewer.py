@@ -30,6 +30,8 @@ from pathlib import Path
 
 from . import case_io
 from .contracts import Report
+from .validators.fea import CHECK_IDS as FEA_CHECK_IDS
+from .validators.fea import FIELD_NAME as STRESS_FIELD_NAME
 from .validators.stress import CHECK_IDS as STRESS_CHECK_IDS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -87,7 +89,13 @@ def _case_payload(case: dict) -> dict:
     }
 
 
-def _mesh_payload(path: str | Path, name: str, color: str, budget: int) -> dict:
+def _mesh_payload(
+    path: str | Path,
+    name: str,
+    color: str,
+    budget: int,
+    field: str | Path | None = None,
+) -> dict:
     import trimesh
 
     mesh = trimesh.load(str(path), force="mesh")
@@ -103,12 +111,40 @@ def _mesh_payload(path: str | Path, name: str, color: str, budget: int) -> dict:
             pass
 
     vertices = mesh.vertices.round(COORD_DECIMALS)
-    return {
+    payload = {
         "name": name,
         "color": color,
         "v": vertices.flatten().tolist(),
         "f": mesh.faces.flatten().tolist(),
         "faces": int(len(mesh.faces)),
+    }
+    if field is not None and Path(field).exists():
+        payload.update(_field_payload(Path(field), mesh))
+    return payload
+
+
+def _field_payload(field_path: Path, mesh) -> dict:
+    """Resample a solver stress field onto the display mesh's vertices.
+
+    The solver writes the field on the full exported surface; what reaches the
+    browser is a decimated copy of that surface, so the values are carried across
+    by nearest vertex. That is a display-only approximation -- the number the
+    validator judged is the peak in the report, not what a pixel is coloured by --
+    and the peak is passed through separately so the legend cannot understate it.
+    """
+    import numpy as np
+    from scipy.spatial import cKDTree
+
+    field = json.loads(field_path.read_text())
+    values = np.asarray(field["von_mises_MPa"], dtype=float)
+    source = np.asarray(field["vertices"], dtype=float).reshape(-1, 3)
+    sampled = values[cKDTree(source).query(np.asarray(mesh.vertices))[1]]
+    return {
+        "field": [round(float(v), 2) for v in sampled],
+        "field_unit": field.get("unit", "MPa"),
+        "field_max": round(float(field.get("max_MPa", values.max())), 1),
+        "field_limit": field.get("allowable_MPa") or None,
+        "field_note": field.get("note", ""),
     }
 
 
@@ -130,7 +166,10 @@ def iteration_payload(
         }
         for check in report.checks
     ]
-    stress_ids = set(STRESS_CHECK_IDS)
+    # Both stress lanes count as stress coverage: the beam surrogate and the
+    # solver report different check ids, and grouping either with geometry would
+    # let a stress SKIP read as geometry convergence.
+    stress_ids = set(STRESS_CHECK_IDS) | set(FEA_CHECK_IDS)
     geometry_counts = _status_counts([c for c in checks if c["id"] not in stress_ids])
     stress_counts = _status_counts([c for c in checks if c["id"] in stress_ids])
     geometry_converged = bool(geometry_counts["TOTAL"]) and not (
@@ -173,7 +212,13 @@ def build_page(
     ]
     if implant_path and Path(implant_path).exists():
         meshes.append(
-            _mesh_payload(implant_path, "implant", IMPLANT_COLOR, IMPLANT_FACE_BUDGET)
+            _mesh_payload(
+                implant_path,
+                "implant",
+                IMPLANT_COLOR,
+                IMPLANT_FACE_BUDGET,
+                field=Path(implant_path).with_name(STRESS_FIELD_NAME),
+            )
         )
 
     empty = Report(iteration=0)

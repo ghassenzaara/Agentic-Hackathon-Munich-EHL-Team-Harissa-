@@ -108,6 +108,21 @@ space is genuinely constrained:
 If the arithmetic says a scalar change cannot close the gap, change the geometry
 instead.
 
+## Reading a stress failure
+
+`fea_max_von_mises` is a real linear-static solve on your posted geometry, not a
+formula: the report's `location` is the node where the peak was measured and the
+run also writes `stress_field.json`, a per-vertex field of the same solve. Fix it
+where the solve says the stress is, not where you assume it is — moving material
+to a section that is already lightly loaded spends mass budget for nothing.
+
+The peak is read away from the screw bores on purpose: the solve restrains those
+nodes rigidly, so stress there is a boundary-condition artefact that grows with
+mesh refinement and means nothing about your design. Do not tune against it.
+
+The model idealises: rigid screws, no bone sharing the load, one static case, no
+fatigue. Treat it as a comparative measure between your candidates.
+
 ## The rationale you submit
 
 It is a real engineering deliverable — it becomes the design history for this

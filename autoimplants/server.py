@@ -42,7 +42,15 @@ RUNTIME_ROOT = REPO_ROOT / ".autoimplants-runtime"
 WORKSPACES_ROOT = REPO_ROOT / ".autoimplants-workspaces"
 DEMO_CASE = REPO_ROOT / "inputs" / "case.json"
 DEMO_BONE = REPO_ROOT / "inputs" / "bone.stl"
-VALIDATORS = "geometry,pending_stress"
+VALIDATORS = "geometry,fea"
+# Everything an iteration publishes: the solid, the report, the audit trail and the
+# solver's stress field, which the viewer colours the solid with.
+ITERATION_ARTIFACTS = (
+    "report.json",
+    "implant.stl",
+    "implant.step",
+    viewer.STRESS_FIELD_NAME,
+)
 ACU_PER_ITERATION = 5
 MAX_ITERATIONS = 3
 MAX_BONE_BYTES = 25 * 1024 * 1024
@@ -512,12 +520,12 @@ class RunManager:
         label = "Baseline" if number == 0 else f"Iteration {number}"
         target = self.store.run_dir(record["run_id"]) / "iterations" / f"{number:03d}"
         target.mkdir(parents=True, exist_ok=True)
-        for name in ("report.json", "implant.stl", "implant.step"):
+        for name in ITERATION_ARTIFACTS:
             source = out_dir / name
             if source.exists():
                 shutil.copy2(source, target / name)
         artifacts = {}
-        for name in ("report.json", "implant.stl", "implant.step"):
+        for name in ITERATION_ARTIFACTS:
             path = target / name
             if path.exists():
                 artifacts[name] = {
@@ -557,6 +565,11 @@ class RunManager:
                 "step": f"{prefix}/artifacts/implant.step",
                 "audit": f"{prefix}/artifacts/audit.json",
                 "mesh": f"{prefix}/mesh",
+                **(
+                    {"stress_field": f"{prefix}/artifacts/{viewer.STRESS_FIELD_NAME}"}
+                    if (target / viewer.STRESS_FIELD_NAME).exists()
+                    else {}
+                ),
             },
         )
         iteration["artifact_hashes"] = artifacts
@@ -1193,13 +1206,19 @@ def create_app(
         ]
         if implant.exists():
             meshes.append(
-                viewer._mesh_payload(implant, "implant", viewer.IMPLANT_COLOR, viewer.IMPLANT_FACE_BUDGET)
+                viewer._mesh_payload(
+                    implant,
+                    "implant",
+                    viewer.IMPLANT_COLOR,
+                    viewer.IMPLANT_FACE_BUDGET,
+                    field=Path(implant).with_name(viewer.STRESS_FIELD_NAME),
+                )
             )
         return JSONResponse({"meshes": meshes})
 
     @app.get("/api/runs/{run_id}/iterations/{iteration}/artifacts/{name}")
     def artifact(run_id: str, iteration: int, name: str) -> FileResponse:
-        if name not in {"report.json", "implant.stl", "implant.step", "audit.json"}:
+        if name not in set(ITERATION_ARTIFACTS) | {"audit.json"}:
             raise HTTPException(404, "Artifact not found")
         try:
             manager.store.get(run_id)

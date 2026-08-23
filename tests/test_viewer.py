@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
+
+import trimesh
 
 from autoimplants.contracts import FAIL, PASS, SKIP, Check, Report
 from autoimplants import viewer
@@ -11,7 +14,7 @@ def _patch_mesh_inputs(monkeypatch):
     monkeypatch.setattr(
         viewer,
         "_mesh_payload",
-        lambda path, name, color, budget: {
+        lambda path, name, color, budget, field=None: {
             "name": name,
             "color": color,
             "v": [0, 0, 0, 1, 0, 0, 0, 1, 0],
@@ -61,6 +64,51 @@ def test_skipped_stress_does_not_block_geometry_convergence(monkeypatch):
     assert '"geometry_converged":true' in html
     assert "GEOMETRY CONVERGED" in html
     assert "Skipped checks are never included in a passing total." in html
+
+
+def test_stress_field_reaches_the_browser_with_its_own_scale(tmp_path):
+    """A heatmap is only honest if the legend carries the solver's own peak."""
+    solid = trimesh.creation.box(extents=(10.0, 4.0, 2.0))
+    implant = tmp_path / "implant.stl"
+    solid.export(implant)
+    field = tmp_path / viewer.STRESS_FIELD_NAME
+    field.write_text(
+        json.dumps(
+            {
+                "vertices": solid.vertices.tolist(),
+                "von_mises_MPa": [float(index) for index in range(len(solid.vertices))],
+                "max_MPa": float(len(solid.vertices) - 1),
+                "allowable_MPa": 350.0,
+                "unit": "MPa",
+                "note": "indicative linear-static solve",
+            }
+        )
+    )
+
+    payload = viewer._mesh_payload(
+        implant, "implant", viewer.IMPLANT_COLOR, 4000, field=field
+    )
+
+    assert len(payload["field"]) == len(payload["v"]) // 3
+    assert payload["field_max"] == float(len(solid.vertices) - 1)
+    assert payload["field_limit"] == 350.0
+    assert payload["field_unit"] == "MPa"
+
+
+def test_mesh_payload_without_a_solve_carries_no_field(tmp_path):
+    solid = trimesh.creation.box(extents=(10.0, 4.0, 2.0))
+    implant = tmp_path / "implant.stl"
+    solid.export(implant)
+
+    payload = viewer._mesh_payload(
+        implant,
+        "implant",
+        viewer.IMPLANT_COLOR,
+        4000,
+        field=tmp_path / viewer.STRESS_FIELD_NAME,
+    )
+
+    assert "field" not in payload
 
 
 def test_report_summary_never_counts_skip_as_pass():

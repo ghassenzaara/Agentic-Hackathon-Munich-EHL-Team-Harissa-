@@ -58,7 +58,7 @@ checked mechanically after every session. Changing a threshold is not a fix.
 
 ```bash
 bash setup.sh                                              # first time only
-.venv/bin/python -m autoimplants.run --validators geometry,stress
+.venv/bin/python -m autoimplants.run --validators geometry,fea
 ```
 
 Exit code 0 means the design passes; 1 means it does not. Read the failure table:

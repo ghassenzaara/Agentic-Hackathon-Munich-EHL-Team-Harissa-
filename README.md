@@ -49,11 +49,11 @@ PY=.venv/bin/python
 Run one complete baseline iteration:
 
 ```powershell
-& $py -m autoimplants.run --validators geometry,stress
+& $py -m autoimplants.run --validators geometry,fea
 ```
 
 ```bash
-$PY -m autoimplants.run --validators geometry,stress
+$PY -m autoimplants.run --validators geometry,fea
 ```
 
 The baseline intentionally exits with code `1`. It is a generic flat plate
@@ -188,7 +188,7 @@ missing screws or landmarks.
 
 & $py -m autoimplants.run `
   --case real_cases/EXAMPLE-FEMUR-CT-001-OBLIQUE/generated/case.json `
-  --validators geometry,stress `
+  --validators geometry,fea `
   --out out_real
 ```
 
@@ -208,7 +208,7 @@ For the committed synthetic CT phantom:
   --bone real_cases/synthetic_ct/bone.stl
 & $py -m autoimplants.run `
   --case real_cases/SYNTH-CT-FEMUR-001/generated/case.json `
-  --validators geometry,stress `
+  --validators geometry,fea `
   --out out_ct
 & $py -m autoimplants.viewer `
   --case real_cases/SYNTH-CT-FEMUR-001/generated/case.json `

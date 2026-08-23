@@ -326,7 +326,7 @@ Treat 2.5 as a floor, not a target to sit exactly on.
 
 ```bash
 bash setup.sh                                       # first time only
-.venv/bin/python -m autoimplants.run --validators geometry,stress
+.venv/bin/python -m autoimplants.run --validators geometry,fea
 ```
 
 Exit code **0** means the design passes, **1** means it does not — branch on `$?`. The full
@@ -557,7 +557,7 @@ fracture), that is a design error to report, not a parameter to tune around.
 
 ## 12. Definition of done
 
-A run succeeds when `python -m autoimplants.run --validators geometry,stress` exits 0, with an
+A run succeeds when `python -m autoimplants.run --validators geometry,fea` exits 0, with an
 iteration log recording each change and its rationale. Ties are broken by lower mass, then by
 fewer iterations.
 
