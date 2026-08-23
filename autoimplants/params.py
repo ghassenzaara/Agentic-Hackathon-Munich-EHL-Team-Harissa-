@@ -12,6 +12,35 @@ from __future__ import annotations
 from copy import deepcopy
 
 DEFAULT_PARAMS: dict = {
+    # Which topology to build. "plate" sweeps a fitted section along a shaft, so it
+    # only means anything on a long bone. "conformal_patch" offsets a region of the
+    # bone's own surface into a shell and works on any anatomy -- cranial, pelvic,
+    # scapular -- because it never assumes an axis. Every key below marked "plate"
+    # is ignored by the patch family and vice versa; the case declares which family
+    # its anatomy needs (case["implant"]["family"]).
+    "family": "plate",
+
+    # --- conformal_patch family ------------------------------------------------
+    # region: which bone surface the device covers.
+    #   {"type": "screw_span", "margin_mm": m} -- everything within m of a planned
+    #   screw entry. The general default: no extra authoring, and it follows the
+    #   surgeon's own fixation pattern.
+    #   {"type": "sphere", "center_mm": [...], "radius_mm": r} -- how a defect is
+    #   described, for a reconstruction that fills one.
+    # wall: a number for a uniform shell, or {"base_mm", "boss_mm",
+    #   "boss_radius_mm"} to thicken around each bore -- the surface equivalent of
+    #   the plate's hole_bosses, and for the same reason: the bore is where the
+    #   section is lost and where the head bears.
+    "patch": {
+        "region": {"type": "screw_span", "margin_mm": 12.0},
+        # Thinner than the plate's wall, deliberately: a shell wrapped over
+        # curvature gets its stiffness from that curvature, not from depth, and a
+        # patch covers far more area than a plate strip -- 2.6 mm over a cranial
+        # region is 50 g of titanium. Raised locally at the bores, where the
+        # section is lost to the hole and the screw head bears.
+        "wall": {"base_mm": 1.8, "boss_mm": 0.9, "boss_radius_mm": 7.0},
+    },
+
     # --- overall plate envelope ------------------------------------------------
     "length_mm": 180.0,
     # 19.8 of the 20 mm allowed -- the widest station, with width_profile below
@@ -170,6 +199,28 @@ def default_params() -> dict:
     return deepcopy(DEFAULT_PARAMS)
 
 
+def for_case(params: dict, case: dict) -> dict:
+    """Adopt the implant family (and its region) the case's anatomy requires.
+
+    The family is a property of the anatomy, not of the design: a cranial defect
+    cannot be treated by sweeping a section along a shaft, whatever the params
+    say. So a case declaring ``implant.family`` selects it, unless the params
+    already ask for a non-default family -- that is how a design iteration tries a
+    different topology on the same case.
+    """
+    declared = (case.get("implant") or {}).get("family")
+    if not declared or params.get("family", "plate") != "plate":
+        return params
+
+    params = deepcopy(params)
+    params["family"] = declared
+    region = (case.get("implant") or {}).get("region")
+    if region and declared == "conformal_patch":
+        params.setdefault("patch", {})
+        params["patch"] = {**params["patch"], "region": region}
+    return params
+
+
 def check_params(params: dict) -> list[str]:
     """Return a list of human-readable problems. Empty list means usable."""
     problems = [f"missing required param: {k}" for k in REQUIRED_KEYS if k not in params]
@@ -186,7 +237,12 @@ def check_params(params: dict) -> list[str]:
         if v is not None and not isinstance(v, list):
             problems.append(f"{key} must be a list, got {type(v).__name__}")
 
-    for key in ("moment_thickness", "hole_bosses"):
+    if params.get("family") not in (None, "plate", "conformal_patch"):
+        problems.append(
+            f"family must be 'plate' or 'conformal_patch', got {params['family']!r}"
+        )
+
+    for key in ("moment_thickness", "hole_bosses", "patch"):
         spec = params.get(key)
         if spec is not None and not isinstance(spec, dict):
             problems.append(f"{key} must be a dict, got {type(spec).__name__}")

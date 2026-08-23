@@ -20,6 +20,7 @@ from pathlib import Path
 from . import case_io
 from .contracts import Report
 from .params import check_params, default_params
+from .params import for_case as params_for_case
 from .validators import REGISTRY, run_all
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -77,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, ValueError, KeyError, TypeError) as exc:
         print(f"[fatal] could not load case: {exc}", file=sys.stderr)
         return 2
-    params = load_params(args.params)
+    params = params_for_case(load_params(args.params), case)
 
     names = tuple(sorted(REGISTRY)) if args.validators == "all" else tuple(
         n.strip() for n in args.validators.split(",") if n.strip()

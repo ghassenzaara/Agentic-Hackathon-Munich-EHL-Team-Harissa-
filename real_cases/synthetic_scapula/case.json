@@ -1,0 +1,57 @@
+{
+  "case_id": "SYNTH-SCAPULA-001",
+  "provenance": "SYNTHETIC -- fabricated analytic saddle-shaped blade with a ragged defect and oblique screws. Exists to test the conformal-patch family on doubly curved anatomy with varying bone thickness. Not patient data. No clinical claim.",
+  "inputs": {
+    "bone_mesh": "bone.stl",
+    "screw_positions": "screw_positions.json",
+    "keepout_zones": "keepout_zones.json"
+  },
+  "implant": {
+    "family": "conformal_patch",
+    "region": {
+      "type": "screw_span",
+      "margin_mm": 15.0
+    },
+    "region_note": "The screws ring the resection at ~28 mm with a wobble; a 15 mm margin joins them into one patch that spans the defect and lands on intact bone all round."
+  },
+  "material": {
+    "name": "Ti-6Al-4V (Grade 5), annealed",
+    "youngs_modulus_GPa": 114.0,
+    "poisson_ratio": 0.34,
+    "yield_strength_MPa": 880.0,
+    "density_g_cm3": 4.43,
+    "allowable_stress_MPa": 350.0
+  },
+  "envelope": {
+    "aspect": "scapular blade, dorsal surface (synthetic)",
+    "max_footprint_mm": 120.0,
+    "max_standoff_mm": 6.0,
+    "thickness_bounds_mm": {
+      "min": 1.5,
+      "max": 4.5
+    }
+  },
+  "thresholds": {
+    "min_wall_mm": 1.5,
+    "max_bone_gap_mm": 1.5,
+    "min_bone_gap_mm": 0.05,
+    "max_implant_mass_g": 45.0,
+    "max_keepout_encroach_mm": 0.0,
+    "require_watertight": true,
+    "require_all_screws": 7
+  },
+  "threshold_notes": {
+    "max_bone_gap_mm": "The seating surface is a saddle, so a device that conforms on a sphere will not conform here: this threshold is the point of the case.",
+    "stress": "No load case is declared. Scapular reconstruction loading is not a beam problem, and no beam surrogate in this repository applies, so the stress validator reports SKIP rather than a number."
+  },
+  "defect": {
+    "type": "irregular_prism",
+    "center_mm": [
+      -8.0,
+      6.0,
+      0.516
+    ],
+    "mean_radius_mm": 19.0,
+    "note": "ragged full-thickness resection cut out of the bone mesh"
+  }
+}

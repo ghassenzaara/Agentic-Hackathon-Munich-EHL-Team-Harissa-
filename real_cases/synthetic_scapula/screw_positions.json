@@ -1,0 +1,116 @@
+{
+  "screws": [
+    {
+      "id": "blade_1",
+      "entry_mm": [
+        20.0,
+        6.0,
+        7.837
+      ],
+      "direction": [
+        0.0329,
+        -0.4623,
+        -0.8861
+      ],
+      "diameter_mm": 2.7,
+      "length_mm": 12.0,
+      "note": "driven 22 deg off the local normal, into the thicker bone"
+    },
+    {
+      "id": "blade_2",
+      "entry_mm": [
+        11.585,
+        30.559,
+        -15.025
+      ],
+      "direction": [
+        -0.2032,
+        -0.8531,
+        -0.4805
+      ],
+      "diameter_mm": 2.7,
+      "length_mm": 12.0,
+      "note": "driven 22 deg off the local normal, into the thicker bone"
+    },
+    {
+      "id": "blade_3",
+      "entry_mm": [
+        -13.893,
+        31.817,
+        -12.141
+      ],
+      "direction": [
+        -0.0903,
+        -0.8803,
+        -0.4657
+      ],
+      "diameter_mm": 2.7,
+      "length_mm": 12.0,
+      "note": "driven 22 deg off the local normal, into the thicker bone"
+    },
+    {
+      "id": "blade_4",
+      "entry_mm": [
+        -30.762,
+        16.961,
+        5.568
+      ],
+      "direction": [
+        -0.2196,
+        -0.4744,
+        -0.8525
+      ],
+      "diameter_mm": 2.7,
+      "length_mm": 12.0,
+      "note": "driven 22 deg off the local normal, into the thicker bone"
+    },
+    {
+      "id": "blade_5",
+      "entry_mm": [
+        -35.693,
+        -7.336,
+        16.09
+      ],
+      "direction": [
+        -0.3645,
+        0.1399,
+        -0.9206
+      ],
+      "diameter_mm": 2.7,
+      "length_mm": 12.0,
+      "note": "driven 22 deg off the local normal, into the thicker bone"
+    },
+    {
+      "id": "blade_6",
+      "entry_mm": [
+        -14.569,
+        -22.779,
+        -1.72
+      ],
+      "direction": [
+        -0.0806,
+        0.8601,
+        -0.5037
+      ],
+      "diameter_mm": 2.7,
+      "length_mm": 12.0,
+      "note": "driven 22 deg off the local normal, into the thicker bone"
+    },
+    {
+      "id": "blade_7",
+      "entry_mm": [
+        7.33,
+        -13.223,
+        3.828
+      ],
+      "direction": [
+        -0.0764,
+        0.7038,
+        -0.7062
+      ],
+      "diameter_mm": 2.7,
+      "length_mm": 12.0,
+      "note": "driven 22 deg off the local normal, into the thicker bone"
+    }
+  ]
+}

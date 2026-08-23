@@ -154,7 +154,17 @@ def load_screws(case: dict | None = None) -> list[dict]:
 
 
 def load_keepouts(case: dict | None = None) -> list[dict]:
-    """Keepout zones. A case with no keepout file simply has none."""
+    """Keepout zones. A case with no keepout file simply has none.
+
+    A case that lists its inputs and does not list keepouts has none either: the
+    repo-root fallback would otherwise hand the demo femur's zones to an unrelated
+    case, so a cranial device would be checked against a femoral neurovascular
+    corridor. Silent cross-case leakage is worse than a missing check.
+    """
+    case = active_case() if case is None else case
+    declared = case.get("inputs") or {}
+    if declared and "keepout_zones" not in declared:
+        return []
     p = keepouts_path(case)
     if not p.exists():
         return []

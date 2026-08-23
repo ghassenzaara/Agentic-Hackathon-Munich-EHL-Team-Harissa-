@@ -37,7 +37,7 @@ import cadquery as cq
 import numpy as np
 from scipy.ndimage import gaussian_filter, maximum_filter
 
-from . import case_io
+from . import case_io, patch
 from .bone import surface_grid
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -435,9 +435,27 @@ def _section_wire(
 def build_implant(params: dict) -> cq.Workplane:
     """Build the implant solid from params. FROZEN SIGNATURE.
 
-    A plate whose bone-facing surface is fitted to the cortex station by station,
+    ``params["family"]`` picks the topology, because a plate is only one kind of
+    implant: ``"plate"`` sweeps a fitted section along a shaft (long bones), and
+    ``"conformal_patch"`` offsets a region of the bone's own surface into a shell
+    (any anatomy -- see :mod:`autoimplants.patch`). The plate is the default so
+    every existing case behaves exactly as before.
+    """
+    family = params.get("family", "plate")
+    if family == "conformal_patch":
+        return patch.build_patch(params)
+    if family != "plate":
+        raise ValueError(
+            f"unknown implant family {family!r}; this generator builds 'plate' or "
+            f"'conformal_patch'"
+        )
+    return _build_plate(params)
+
+
+def _build_plate(params: dict) -> cq.Workplane:
+    """A plate whose bone-facing surface is fitted to the cortex station by station,
     with a wall thickness that follows ``thickness_profile`` along the length and
-    six round screw bores along their planned trajectories.
+    round screw bores along their planned trajectories.
     """
     _guard_unimplemented(params)
 
