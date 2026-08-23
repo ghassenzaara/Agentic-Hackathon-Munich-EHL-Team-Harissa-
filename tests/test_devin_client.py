@@ -25,7 +25,9 @@ def test_v3_uses_org_scoped_paths_and_current_body(monkeypatch):
         structured_output_schema={"type": "object"},
         max_acu_limit=5,
         platform="linux",
+        repos=["https://github.com/example/autoimplants"],
     )
+    client.list_sessions(limit=1)
     client.get_session("devin-123")
     client.send_message("devin-123", "continue")
 
@@ -33,13 +35,19 @@ def test_v3_uses_org_scoped_paths_and_current_body(monkeypatch):
     assert (method, path) == ("POST", "/organizations/org-test/sessions")
     assert kwargs["json"] == {
         "prompt": "work",
+        "repos": ["https://github.com/example/autoimplants"],
         "structured_output_schema": {"type": "object"},
         "structured_output_required": True,
         "max_acu_limit": 5,
         "platform": "linux",
     }
-    assert calls[1][:2] == ("GET", "/organizations/org-test/sessions/devin-123")
-    assert calls[2][:2] == (
+    assert calls[1] == (
+        "GET",
+        "/organizations/org-test/sessions",
+        {"params": {"limit": 1}},
+    )
+    assert calls[2][:2] == ("GET", "/organizations/org-test/sessions/devin-123")
+    assert calls[3][:2] == (
         "POST",
         "/organizations/org-test/sessions/devin-123/messages",
     )

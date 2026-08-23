@@ -23,6 +23,7 @@ REGISTRY = {
     "stub": "autoimplants.validators.stub",
     "geometry": "autoimplants.validators.geometry",
     "stress": "autoimplants.validators.stress",
+    "pending_stress": "autoimplants.validators.pending_stress",
 }
 
 # The order the real loop runs them in: cheap and deterministic first, so an

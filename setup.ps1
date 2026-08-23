@@ -11,11 +11,18 @@ if ($uv) {
 }
 else {
     $launcher = Get-Command py -ErrorAction SilentlyContinue
-    if (-not $launcher) {
-        throw "Install Python 3.12 or uv, then run this script again."
+    if ($launcher) {
+        & py -3.12 -m venv .venv
+        if ($LASTEXITCODE -ne 0) { $launcher = $null }
     }
-    & py -3.12 -m venv .venv
-    if ($LASTEXITCODE -ne 0) { throw "Python 3.12 is not available through py.exe" }
+    if (-not $launcher) {
+        $bundled = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+        if (-not (Test-Path $bundled)) {
+            throw "Install Python 3.12 or uv, then run this script again."
+        }
+        & $bundled -m venv --clear .venv
+        if ($LASTEXITCODE -ne 0) { throw "Bundled Python could not create the environment" }
+    }
     & .\.venv\Scripts\python.exe -m pip install --upgrade pip
     & .\.venv\Scripts\python.exe -m pip install -r requirements.txt
     if ($LASTEXITCODE -ne 0) { throw "dependency installation failed" }

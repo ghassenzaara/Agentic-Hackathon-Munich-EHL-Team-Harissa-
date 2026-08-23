@@ -106,10 +106,13 @@ class DevinClient:
         structured_output_schema: dict | None = None,
         max_acu_limit: int | None = None,
         platform: str | None = None,
+        repos: list[str] | None = None,
     ) -> dict:
         """Start a session, requiring validated structured output when a schema is given."""
         platform = platform or os.environ.get("DEVIN_PLATFORM") or None
         body: dict[str, Any] = {"prompt": prompt}
+        if repos:
+            body["repos"] = repos
         if title:
             body["title"] = title
         if tags:
@@ -124,6 +127,10 @@ class DevinClient:
             body["platform"] = platform
 
         return self._request("POST", self.sessions_path, json=body)
+
+    def list_sessions(self, limit: int = 1) -> dict:
+        """Cheap credential/RBAC preflight; it never creates a paid session."""
+        return self._request("GET", self.sessions_path, params={"limit": limit})
 
     def get_session(self, session_id: str) -> dict:
         return self._request("GET", f"{self.sessions_path}/{session_id}")

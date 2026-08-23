@@ -28,6 +28,7 @@ from pathlib import Path
 
 from . import case_io
 from .contracts import Report
+from .validators.stress import CHECK_IDS as STRESS_CHECK_IDS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(__file__).resolve().parent / "viewer_template.html"
@@ -43,6 +44,30 @@ COORD_DECIMALS = 2
 
 BONE_COLOR = "#d8cfc0"
 IMPLANT_COLOR = "#8fa3b0"
+
+
+def _status_counts(checks: list[dict]) -> dict[str, int]:
+    """Count every report state explicitly; SKIP is never folded into PASS."""
+    counts = {"PASS": 0, "FAIL": 0, "SKIP": 0, "ERROR": 0, "TOTAL": len(checks)}
+    for check in checks:
+        status = str(check.get("status", "ERROR")).upper()
+        counts[status if status in counts else "ERROR"] += 1
+    return counts
+
+
+def _case_payload(case: dict) -> dict:
+    """The locked inputs a surgeon reviews before the autonomous loop starts."""
+    return {
+        "id": case.get("case_id", "case"),
+        "provenance": case.get("provenance", ""),
+        "material": case.get("material", {}),
+        "envelope": case.get("envelope", {}),
+        "load_cases": case.get("load_cases", []),
+        "thresholds": case.get("thresholds", {}),
+        "iteration_budget": case.get("iteration_budget", 8),
+        "screws": case_io.load_screws(case),
+        "keepouts": case_io.load_keepouts(case),
+    }
 
 
 def _mesh_payload(path: str | Path, name: str, color: str, budget: int) -> dict:
@@ -70,11 +95,60 @@ def _mesh_payload(path: str | Path, name: str, color: str, budget: int) -> dict:
     }
 
 
+def iteration_payload(
+    report: Report,
+    context: dict | None = None,
+    artifacts: dict | None = None,
+) -> dict:
+    """Browser/API representation of one independently validated iteration."""
+    checks = [
+        {
+            "id": check.id,
+            "status": check.status,
+            "value": check.value,
+            "limit": check.limit,
+            "unit": check.unit,
+            "location": check.location,
+            "message": check.message,
+        }
+        for check in report.checks
+    ]
+    stress_ids = set(STRESS_CHECK_IDS)
+    geometry_counts = _status_counts([c for c in checks if c["id"] not in stress_ids])
+    stress_counts = _status_counts([c for c in checks if c["id"] in stress_ids])
+    geometry_converged = bool(geometry_counts["TOTAL"]) and not (
+        geometry_counts["FAIL"] or geometry_counts["ERROR"] or geometry_counts["SKIP"]
+    )
+    defaults = {
+        "number": report.iteration,
+        "label": "Baseline" if report.iteration == 0 else f"Iteration {report.iteration}",
+        "rationale": "Baseline design — no autonomous geometry edit has been committed yet.",
+        "commit_sha": "",
+        "session_url": "",
+        "topology_changed": False,
+    }
+    for key in ("rationale", "commit_sha", "session_url", "topology_changed"):
+        if key in report.meta:
+            defaults[key] = report.meta[key]
+    if context:
+        defaults.update({key: value for key, value in context.items() if value is not None})
+    return {
+        **defaults,
+        "checks": checks,
+        "report": report.to_dict(),
+        "coverage": {"geometry": geometry_counts, "stress": stress_counts},
+        "geometry_converged": geometry_converged,
+        "artifacts": artifacts or {},
+    }
+
+
 def build_page(
     case: dict,
     implant_path: str | Path | None,
     report: Report | None,
     title: str | None = None,
+    iteration_context: dict | None = None,
+    server_mode: bool = False,
 ) -> str:
     """The finished HTML, with geometry and report inlined."""
     meshes = [
@@ -85,23 +159,14 @@ def build_page(
             _mesh_payload(implant_path, "implant", IMPLANT_COLOR, IMPLANT_FACE_BUDGET)
         )
 
-    checks = []
-    if report is not None:
-        for check in report.checks:
-            checks.append(
-                {
-                    "id": check.id,
-                    "status": check.status,
-                    "value": check.value,
-                    "limit": check.limit,
-                    "unit": check.unit,
-                    "location": check.location,
-                    "message": check.message,
-                }
-            )
+    empty = Report(iteration=0)
+    iteration = iteration_payload(report or empty, iteration_context)
+    checks = iteration["checks"]
+    geometry_counts = iteration["coverage"]["geometry"]
+    stress_counts = iteration["coverage"]["stress"]
+    geometry_converged = iteration["geometry_converged"]
 
-    passing = sum(1 for c in checks if c["status"] in ("PASS", "SKIP"))
-    verdict = "PASS" if (report is not None and report.passed) else "FAIL"
+    verdict = "GEOMETRY CONVERGED" if geometry_converged else "ENGINEERING"
 
     meta_bits = [f"{m['faces']} tri {m['name']}" for m in meshes]
     if report is not None and report.meta.get("volume_mm3"):
@@ -109,7 +174,28 @@ def build_page(
     if report is not None and report.iteration:
         meta_bits.insert(0, f"iteration {report.iteration}")
 
-    payload = {"meshes": meshes, "checks": checks}
+    implant_name = Path(implant_path).name if implant_path else "implant.stl"
+    step_name = str(Path(implant_name).with_suffix(".step"))
+    iteration["artifacts"] = {
+        "stl": implant_name,
+        "step": step_name,
+        "report": "report.json",
+    }
+    payload = {
+        "case": _case_payload(case),
+        "verdict": verdict,
+        "meshes": meshes,
+        "checks": checks,
+        "coverage": iteration["coverage"],
+        "iterations": [iteration],
+        "active_iteration": 0,
+        "server_mode": server_mode,
+        "review": {
+            "geometry_converged": geometry_converged,
+            "prototype_only": True,
+            "stress_skipped": stress_counts["SKIP"],
+        },
+    }
     case_id = case.get("case_id", "case")
 
     # Token substitution, not str.format -- the template is full of CSS and JS
@@ -121,8 +207,8 @@ def build_page(
         "{{CASE_ID}}": str(case_id),
         "{{VERDICT}}": verdict,
         "{{VERDICT_CLASS}}": verdict.lower(),
-        "{{PASS_COUNT}}": str(passing),
-        "{{TOTAL_COUNT}}": str(len(checks)),
+        "{{PASS_COUNT}}": str(geometry_counts["PASS"]),
+        "{{TOTAL_COUNT}}": str(geometry_counts["TOTAL"]),
         "{{META}}": " · ".join(meta_bits),
         # </script> inside the JSON would close the tag holding it.
         "{{DATA}}": json.dumps(payload, separators=(",", ":")).replace("</", "<\\/"),
@@ -138,6 +224,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report", default="out/report.json")
     ap.add_argument("--out", default="out/viewer.html")
     ap.add_argument("--title")
+    ap.add_argument("--rationale", help="verbatim engineering rationale / commit message")
+    ap.add_argument("--commit-sha", help="git commit that produced this solid")
+    ap.add_argument("--session-url", help="live Devin session for this iteration")
+    ap.add_argument(
+        "--topology-changed",
+        action="store_true",
+        help="mark this iteration as a structural geometry change",
+    )
     args = ap.parse_args(argv)
 
     case_path = Path(args.case)
@@ -152,7 +246,19 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"[warn] no report at {args.report} -- rendering geometry only", file=sys.stderr)
 
-    html = build_page(case, args.implant, report, title=args.title)
+    context = {
+        "rationale": args.rationale,
+        "commit_sha": args.commit_sha,
+        "session_url": args.session_url,
+        "topology_changed": True if args.topology_changed else None,
+    }
+    html = build_page(
+        case,
+        args.implant,
+        report,
+        title=args.title,
+        iteration_context=context,
+    )
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

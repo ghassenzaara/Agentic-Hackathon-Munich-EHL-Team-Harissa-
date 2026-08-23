@@ -43,14 +43,21 @@ ITERATION_OUTPUT_SCHEMA = {
 }
 
 
-def render_prompt(iteration: int, report: Report, branch: str, history: list[str]) -> str:
+def render_prompt(
+    iteration: int,
+    report: Report,
+    branch: str,
+    history: list[str],
+    repo_root: str | Path = REPO_ROOT,
+    feedback: str = "",
+) -> str:
     """Token substitution, not str.format -- the report is full of JSON braces."""
     text = PROMPT_TEMPLATE.read_text(encoding="utf-8")
     # Drop the template's own explanatory header.
     text = text.split("---", 2)[-1].lstrip()
     repo_url = subprocess.run(
         ["git", "remote", "get-url", "origin"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        cwd=Path(repo_root), capture_output=True, text=True, check=True,
     ).stdout.strip()
 
     for token, value in {
@@ -62,19 +69,49 @@ def render_prompt(iteration: int, report: Report, branch: str, history: list[str
         "{{HISTORY}}": "\n".join(history) if history else "(nothing yet -- first iteration)",
     }.items():
         text = text.replace(token, value)
+    if feedback:
+        text += (
+            "\n\n## Surgeon revision requirement\n\n"
+            "Treat this as an immutable additional requirement; do not change locked inputs.\n\n"
+            f"{feedback.strip()}\n"
+        )
     return text
 
 
-def validate_locally(validators: str = "geometry,stress") -> Report:
-    """Independent re-check of whatever is currently committed."""
-    py = REPO_ROOT / ".venv" / "Scripts" / "python.exe"
-    if not py.exists():
-        py = REPO_ROOT / ".venv" / "bin" / "python"
-    subprocess.run(
-        [str(py), "-m", "autoimplants.run", "--validators", validators],
-        cwd=REPO_ROOT, check=False,
+def python_executable(repo_root: str | Path = REPO_ROOT) -> Path:
+    root = Path(repo_root)
+    candidates = (
+        root / ".venv" / "Scripts" / "python.exe",
+        REPO_ROOT / ".venv" / "Scripts" / "python.exe",
+        root / ".venv" / "bin" / "python",
+        REPO_ROOT / ".venv" / "bin" / "python",
     )
-    return Report.load(REPO_ROOT / "out" / "report.json")
+    return next((path for path in candidates if path.exists()), Path(sys.executable))
+
+
+def validate_locally(
+    validators: str = "geometry,stress",
+    repo_root: str | Path = REPO_ROOT,
+    out_dir: str | Path = "out",
+    iteration: int = 0,
+    case_path: str | Path | None = None,
+) -> Report:
+    """Independent re-check of whatever is currently committed."""
+    root = Path(repo_root)
+    py = python_executable(root)
+    out = Path(out_dir)
+    if not out.is_absolute():
+        out = root / out
+    command = [
+        str(py), "-m", "autoimplants.run", "--validators", validators,
+        "--iteration", str(iteration), "--out", str(out),
+    ]
+    if case_path is not None:
+        command.extend(["--case", str(case_path)])
+    subprocess.run(
+        command, cwd=root, check=False,
+    )
+    return Report.load(out / "report.json")
 
 
 def _iteration_budget(default: int = 8) -> int:

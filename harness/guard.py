@@ -45,17 +45,19 @@ LOCK_REASONS = {
 }
 
 
-def _git(*args: str) -> str:
+def _git(*args: str, repo_root: str | Path = REPO_ROOT) -> str:
     out = subprocess.run(
-        ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=False
+        ["git", *args], cwd=Path(repo_root), capture_output=True, text=True, check=False
     )
     if out.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {out.stderr.strip()}")
     return out.stdout
 
 
-def changed_files(base: str, head: str = "HEAD") -> list[str]:
-    raw = _git("diff", "--name-only", f"{base}..{head}")
+def changed_files(
+    base: str, head: str = "HEAD", repo_root: str | Path = REPO_ROOT
+) -> list[str]:
+    raw = _git("diff", "--name-only", f"{base}..{head}", repo_root=repo_root)
     return [line.strip().replace("\\", "/") for line in raw.splitlines() if line.strip()]
 
 
@@ -74,17 +76,19 @@ def violations(files: list[str]) -> list[tuple[str, str]]:
     return [(f, lock_reason(f)) for f in files if not is_editable(f)]
 
 
-def check_range(base: str, head: str = "HEAD") -> tuple[bool, list[tuple[str, str]]]:
+def check_range(
+    base: str, head: str = "HEAD", repo_root: str | Path = REPO_ROOT
+) -> tuple[bool, list[tuple[str, str]]]:
     """(clean, violations) for the commits in base..head."""
-    bad = violations(changed_files(base, head))
+    bad = violations(changed_files(base, head, repo_root=repo_root))
     return (not bad, bad)
 
 
-def is_ancestor(base: str, head: str) -> bool:
+def is_ancestor(base: str, head: str, repo_root: str | Path = REPO_ROOT) -> bool:
     """Whether ``head`` contains ``base`` in its history."""
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", base, head],
-        cwd=REPO_ROOT,
+        cwd=Path(repo_root),
         capture_output=True,
         text=True,
         check=False,

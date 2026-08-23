@@ -17,8 +17,8 @@ small allowed design surface, commit its engineering rationale, and repeat.
 - Geometry, fit, keepout, screw-path, mass, and analytical stress checks.
 - Synthetic femur demo plus mesh/surgical-plan import for external cases.
 - DICOM-to-mesh ingestion for the synthetic CT fixture.
-- A self-contained offline HTML review page.
-- Guarded Devin smoke test and iterative design harness.
+- A localhost review application with a live 3D iteration timeline and durable queue.
+- Guarded Devin smoke test, iterative design harness, and server-side surgeon review.
 - An automated regression suite covering the runnable path and API client.
 
 The repository also retains the team's higher-fidelity CalculiX/gmsh work in
@@ -67,7 +67,25 @@ The command writes:
 - `out/implant.stl` — measured validation mesh;
 - `out/report.json` — machine-readable verdict.
 
-Build the offline review page:
+Start the live Devin workflow:
+
+```powershell
+& $py -m autoimplants.server
+# open http://127.0.0.1:8765
+```
+
+The local server verifies the bundled demo femur, shows the maximum ACU spend,
+runs one isolated Git worktree/branch per case, and streams only independently
+validated iterations into the 3D viewer. It executes queued cases serially and
+stores recovery state under `.autoimplants-runtime/`. The browser never receives
+the Devin API key.
+
+For a one-session integration check, open
+`http://127.0.0.1:8765/?max_iterations=1`; the intake will disclose and enforce a
+5-ACU maximum. The normal page caps each design or surgeon revision cycle at
+three sessions / 15 ACU.
+
+Build the offline review-only page:
 
 ```powershell
 & $py -m autoimplants.viewer
@@ -77,6 +95,18 @@ Start-Process .\out\viewer.html
 ```bash
 $PY -m autoimplants.viewer
 # open out/viewer.html in a browser
+```
+
+The offline file previews geometry but cannot start Devin. Geometry and stress
+coverage are always reported separately, so a `SKIP` can never be presented as
+a passing check. To attach evidence from a Devin iteration manually:
+
+```powershell
+& $py -m autoimplants.viewer `
+  --rationale "Contour the plate along the bowed shaft" `
+  --commit-sha 0123456789abcdef `
+  --session-url https://app.devin.ai/sessions/example `
+  --topology-changed
 ```
 
 ## Verify the project
@@ -118,10 +148,11 @@ Copy-Item .env.example .env
 & $py -m harness.smoke --acu-limit 5
 ```
 
-Once smoke passes, start the guarded iterative loop:
+Once smoke passes, use the localhost application above. The CLI harness remains
+available for headless operation:
 
 ```powershell
-& $py -m harness.loop --max-iterations 8 --acu-limit 5 --branch devin/design
+& $py -m harness.loop --max-iterations 3 --acu-limit 5 --branch devin/design
 ```
 
 The loop validates locally, starts one Devin session per failed iteration,

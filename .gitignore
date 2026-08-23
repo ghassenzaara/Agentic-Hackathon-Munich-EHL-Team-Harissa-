@@ -15,6 +15,8 @@ __pycache__/
 # it is the auditable per-iteration record that Devin is allowed to commit.
 out/
 out_*/
+.autoimplants-runtime/
+.autoimplants-worktrees/
 *.step
 *.inp
 *.frd

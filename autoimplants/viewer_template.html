@@ -1,723 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
 <title>{{TITLE}}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
-
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap">
 <style>
-  :root {
-    --ground: #f2f3f5;
-    --panel: #ffffff;
-    --panel-sunk: #eaecef;
-    --viewport: #e7eaee;
-    --viewport-far: #d9dde3;
-    --ink: #16191d;
-    --ink-dim: #5a626c;
-    --ink-faint: #8b939d;
-    --line: #dde1e6;
-    --line-strong: #c6ccd4;
-    --accent: #3e6e8e;
-    --accent-soft: #dbe6ee;
-    --pass: #2e7d5b;
-    --fail: #b3402e;
-    --skip: #7a8290;
-    --error: #8c3a6b;
-    --bone: #d8cfc0;
-    --metal: #8fa3b0;
-    --shadow: 0 1px 2px rgba(16, 25, 35, .06), 0 8px 24px rgba(16, 25, 35, .06);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --ground: #101317;
-      --panel: #171b21;
-      --panel-sunk: #12161b;
-      --viewport: #0b0d10;
-      --viewport-far: #05070a;
-      --ink: #e6e9ed;
-      --ink-dim: #939ba6;
-      --ink-faint: #6e7681;
-      --line: #262c34;
-      --line-strong: #333b45;
-      --accent: #6fa8c9;
-      --accent-soft: #1b2932;
-      --pass: #4caf87;
-      --fail: #e06a52;
-      --skip: #6e7681;
-      --error: #c47bab;
-      --bone: #c9bfae;
-      --metal: #7f94a3;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
-    }
-  }
-
-  :root[data-theme="dark"] {
-    --ground: #101317;
-    --panel: #171b21;
-    --panel-sunk: #12161b;
-    --viewport: #0b0d10;
-    --viewport-far: #05070a;
-    --ink: #e6e9ed;
-    --ink-dim: #939ba6;
-    --ink-faint: #6e7681;
-    --line: #262c34;
-    --line-strong: #333b45;
-    --accent: #6fa8c9;
-    --accent-soft: #1b2932;
-    --pass: #4caf87;
-    --fail: #e06a52;
-    --skip: #6e7681;
-    --error: #c47bab;
-    --bone: #c9bfae;
-    --metal: #7f94a3;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
-  }
-
-  * { box-sizing: border-box; }
-
-  body {
-    margin: 0;
-    background: var(--ground);
-    color: var(--ink);
-    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-size: 14px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  .shell {
-    display: grid;
-    grid-template-rows: auto 1fr;
-    min-height: 100vh;
-    max-height: 100vh;
-  }
-
-  /* ---- header ---- */
-
-  header {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 8px 22px;
-    padding: 14px 20px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--line);
-  }
-
-  .case-id {
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: -.01em;
-  }
-
-  .verdict {
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .1em;
-    padding: 3px 9px;
-    border-radius: 3px;
-  }
-  .verdict.pass { color: var(--pass); background: color-mix(in srgb, var(--pass) 14%, transparent); }
-  .verdict.fail { color: var(--fail); background: color-mix(in srgb, var(--fail) 14%, transparent); }
-
-  .tally {
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-variant-numeric: tabular-nums;
-    color: var(--ink-dim);
-    font-size: 13px;
-  }
-
-  .meta {
-    margin-left: auto;
-    color: var(--ink-faint);
-    font-size: 12px;
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-  }
-
-  /* ---- body split ---- */
-
-  .split {
-    display: grid;
-    grid-template-columns: 1fr 380px;
-    min-height: 0;
-  }
-
-  @media (max-width: 900px) {
-    .shell { max-height: none; }
-    .split { grid-template-columns: 1fr; }
-    .stage { height: 62vh; }
-  }
-
-  /* ---- viewport ---- */
-
-  .stage {
-    position: relative;
-    background: radial-gradient(ellipse at 50% 38%, var(--viewport), var(--viewport-far));
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
-  canvas.dragging { cursor: grabbing; }
-
-  .controls {
-    position: absolute;
-    top: 14px;
-    left: 14px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .chip {
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 11px;
-    letter-spacing: .04em;
-    padding: 5px 10px;
-    border: 1px solid var(--line-strong);
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--panel) 82%, transparent);
-    color: var(--ink-dim);
-    cursor: pointer;
-    backdrop-filter: blur(6px);
-  }
-  .chip[aria-pressed="true"] {
-    color: var(--accent);
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-  .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  .readout {
-    position: absolute;
-    left: 14px;
-    bottom: 14px;
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 11px;
-    color: var(--ink-faint);
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .hint {
-    position: absolute;
-    right: 14px;
-    bottom: 14px;
-    font-size: 11px;
-    color: var(--ink-faint);
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-  }
-
-  /* ---- check rail ---- */
-
-  .rail {
-    background: var(--panel);
-    border-left: 1px solid var(--line);
-    overflow-y: auto;
-    min-height: 0;
-  }
-
-  .rail-head {
-    position: sticky;
-    top: 0;
-    background: var(--panel);
-    border-bottom: 1px solid var(--line);
-    padding: 13px 16px 11px;
-    z-index: 2;
-  }
-
-  .eyebrow {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: .14em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
-  }
-
-  .rail-note { margin: 5px 0 0; color: var(--ink-dim); font-size: 12px; }
-
-  .check {
-    display: grid;
-    grid-template-columns: 3px 1fr;
-    gap: 0 12px;
-    width: 100%;
-    text-align: left;
-    border: 0;
-    border-bottom: 1px solid var(--line);
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    padding: 0;
-    cursor: default;
-  }
-  .check.locatable { cursor: pointer; }
-  .check.locatable:hover { background: var(--panel-sunk); }
-  .check:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .check[aria-current="true"] { background: var(--accent-soft); }
-
-  .stripe { background: var(--line); }
-  .check.s-PASS .stripe { background: var(--pass); }
-  .check.s-FAIL .stripe { background: var(--fail); }
-  .check.s-SKIP .stripe { background: var(--skip); }
-  .check.s-ERROR .stripe { background: var(--error); }
-
-  .check-body { padding: 11px 16px 12px 4px; min-width: 0; }
-
-  .check-top {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-
-  .check-id {
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 12px;
-    font-weight: 500;
-    overflow-wrap: anywhere;
-  }
-
-  .num {
-    margin-left: auto;
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-variant-numeric: tabular-nums;
-    font-size: 12px;
-    white-space: nowrap;
-    color: var(--ink-dim);
-  }
-  .num b { font-weight: 600; color: var(--ink); }
-  .check.s-FAIL .num b { color: var(--fail); }
-
-  .check-msg {
-    margin: 5px 0 0;
-    font-size: 12px;
-    color: var(--ink-dim);
-    line-height: 1.45;
-  }
-
-  .loc {
-    margin-top: 6px;
-    font-family: "IBM Plex Mono", ui-monospace, monospace;
-    font-size: 11px;
-    color: var(--accent);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; animation: none !important; }
-  }
+:root{--obsidian:#070709;--ink:#151515;--charcoal:#60606c;--slate:#8b8b93;--paper:#fff;--cloud:#f5f5f5;--sky-tint:#d7e6f5;--sky:#2597d0;--line:#dedee4;--pass:#287a52;--fail:#c4493d;--skip:#7b7b83;--error:#963c72;--sky-gradient:linear-gradient(180deg,#779bc1 0%,#9abfda 58%,#cbdcec 100%);--shadow-card:0 17px 37px rgba(16,55,132,.035),0 67px 67px rgba(16,55,132,.025);--shadow-button:0 1px 2px rgba(36,36,40,.1),0 3px 3px rgba(36,36,40,.08),0 7px 8px rgba(36,36,40,.05);--card:18px;--input:12px;--pill:999px}
+*{box-sizing:border-box}html{min-width:320px;background:var(--paper)}body{margin:0;color:var(--ink);background:var(--paper);font-family:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}button,input,textarea{font:inherit}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid color-mix(in srgb,var(--sky) 32%,transparent);outline-offset:2px}[hidden]{display:none!important}.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}.eyebrow{color:var(--charcoal);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.button{display:inline-flex;min-height:42px;align-items:center;justify-content:center;gap:8px;padding:10px 18px;border:1px solid var(--obsidian);border-radius:var(--pill);background:var(--obsidian);color:var(--paper);font-weight:650;text-decoration:none;cursor:pointer;box-shadow:var(--shadow-button)}.button:hover{transform:translateY(-1px)}.button.secondary{background:var(--paper);color:var(--obsidian);box-shadow:none}.button.quiet{border-color:var(--line);background:var(--paper);color:var(--charcoal);box-shadow:none}.button[disabled],.button[aria-disabled=true]{opacity:.42;pointer-events:none}
+.intake{min-height:100vh;background:linear-gradient(180deg,transparent 65%,var(--paper) 100%),var(--sky-gradient);overflow:hidden}.intake-nav{display:flex;align-items:center;justify-content:space-between;width:min(1180px,calc(100% - 40px));margin:auto;padding:22px 0;color:var(--paper)}.brand{display:flex;align-items:center;gap:11px;font-weight:700;letter-spacing:-.03em}.brand-mark{display:grid;width:28px;height:28px;place-items:center;border:1px solid currentColor;border-radius:9px;font-size:13px}.prototype-label{padding:7px 12px;border:1px solid rgba(255,255,255,.52);border-radius:var(--pill);color:rgba(255,255,255,.88);font-size:11px;font-weight:650}.intake-main{width:min(760px,calc(100% - 36px));margin:5vh auto 0;padding-bottom:80px;text-align:center}.intake-copy{color:var(--paper)}.intake-copy h1{max-width:720px;margin:14px auto 18px;font-size:clamp(46px,6.2vw,78px);font-weight:620;letter-spacing:-.055em;line-height:.94}.intake-copy p{max-width:570px;margin:0 auto 30px;color:rgba(255,255,255,.88);font-size:17px;letter-spacing:-.018em}.upload-card{padding:22px;border-radius:28px;background:var(--paper);text-align:left;box-shadow:var(--shadow-card)}.dropzone{display:grid;min-height:215px;place-items:center;padding:30px;border:1px dashed #bebecc;border-radius:var(--input);background:var(--paper);text-align:center;cursor:pointer;transition:border-color .18s,background .18s}.dropzone:hover,.dropzone.dragging{border-color:var(--sky);background:#fafdff}.upload-icon{display:grid;width:52px;height:52px;margin:0 auto 16px;place-items:center;border-radius:16px;background:color-mix(in srgb,var(--sky-tint) 72%,var(--paper));color:var(--sky)}.dropzone strong{display:block;margin-bottom:5px;font-size:16px;letter-spacing:-.02em}.dropzone small{color:var(--charcoal)}.link-button{padding:0;border:0;background:transparent;color:var(--ink);font-weight:700;text-decoration:underline;text-underline-offset:3px;cursor:pointer}.file-input{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0}.selected-file{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:13px;margin-bottom:16px;padding:14px;border:1px solid var(--line);border-radius:var(--input);background:var(--cloud)}.file-glyph{display:grid;width:38px;height:38px;place-items:center;border-radius:10px;background:var(--paper);color:var(--sky)}.file-meta strong{display:block;font-size:13px}.file-meta span{color:var(--charcoal);font-size:11px}.ready-mark{color:var(--pass);font-weight:700;font-size:12px}.constraints{margin-top:18px}.constraints-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.locked-badge{color:var(--charcoal);font-size:11px;font-weight:650}.constraint-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.constraint-card{min-height:94px;padding:13px;border:1px solid var(--line);border-radius:12px}.constraint-card span{display:block;margin-bottom:7px;color:var(--charcoal);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.constraint-card strong{display:block;font-size:13px;line-height:1.35}.run-confirm{display:grid;grid-template-columns:auto 1fr;gap:9px;margin-top:15px;padding:12px;border:1px solid var(--line);border-radius:11px;background:#f8fbfd;color:var(--charcoal);font-size:11px}.run-confirm strong{display:block;color:var(--ink);font-size:12px}.preflight{margin-top:9px;color:var(--charcoal);font-size:10px}.preflight.ready{color:var(--pass)}.preflight.error{color:var(--fail)}.intake-actions{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:18px}.intake-actions p{margin:0;color:var(--charcoal);font-size:11px;line-height:1.45}
+.workbench{min-height:100vh;background:var(--cloud)}.topbar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;min-height:66px;padding:0 22px;border-bottom:1px solid var(--line);background:var(--paper)}.topbar .brand{justify-self:start}.case-heading{justify-self:center;text-align:center}.case-heading strong{display:block;font-size:13px}.case-heading span{color:var(--charcoal);font-size:11px}.top-actions{display:flex;justify-self:end;align-items:center;gap:10px}.session-link{min-height:34px;padding:7px 13px;font-size:12px}.run-state{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:650;color:var(--charcoal)}.run-dot{width:7px;height:7px;border-radius:50%;background:var(--sky);box-shadow:0 0 0 4px color-mix(in srgb,var(--sky) 12%,transparent)}.run-state.working .run-dot{animation:pulse 1.8s infinite}@keyframes pulse{50%{box-shadow:0 0 0 8px transparent}}.coverage-banner{display:flex;align-items:center;justify-content:center;gap:9px;min-height:34px;padding:7px 16px;border-bottom:1px solid #d8e5ef;background:#f6fbff;color:#3c5b70;font-size:11px;text-align:center}.workbench-grid{display:grid;grid-template-columns:minmax(0,1fr) 388px;grid-template-rows:minmax(0,1fr) 96px;gap:12px;height:calc(100vh - 100px);padding:12px}.stage-card{position:relative;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--line);border-radius:var(--card);background:radial-gradient(ellipse at 50% 38%,#fbfcfd 0%,#edf2f5 65%,#e2e9ee 100%)}canvas{display:block;width:100%;height:100%;cursor:grab;touch-action:none}canvas.dragging{cursor:grabbing}canvas.pin-mode{cursor:crosshair}.viewer-controls{position:absolute;top:14px;left:14px;display:flex;flex-wrap:wrap;gap:7px}.chip{min-height:32px;padding:6px 11px;border:1px solid #cfd3d8;border-radius:var(--pill);background:rgba(255,255,255,.86);color:var(--charcoal);font-size:11px;font-weight:650;cursor:pointer;backdrop-filter:blur(8px)}.chip[aria-pressed=true]{border-color:var(--obsidian);color:var(--obsidian);background:var(--paper)}.chip:disabled{opacity:.42;cursor:not-allowed}.model-label{position:absolute;top:15px;right:15px;max-width:260px;padding:9px 12px;border:1px solid rgba(255,255,255,.8);border-radius:12px;background:rgba(255,255,255,.74);color:var(--charcoal);font-size:11px;backdrop-filter:blur(10px)}.model-label strong{color:var(--ink)}.viewer-readout{position:absolute;left:16px;bottom:15px;color:var(--slate);font-size:10px}.viewer-hint{position:absolute;right:16px;bottom:15px;margin:0;color:var(--slate);font-size:10px}.finding-card{position:absolute;left:50%;bottom:22px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;width:min(540px,calc(100% - 36px));gap:11px;padding:13px 14px;border:1px solid color-mix(in srgb,var(--fail) 26%,var(--line));border-radius:15px;background:rgba(255,255,255,.92);box-shadow:0 12px 36px rgba(34,47,60,.09);transform:translateX(-50%);text-align:left;cursor:pointer;backdrop-filter:blur(12px)}.finding-icon{display:grid;width:32px;height:32px;place-items:center;border-radius:50%;background:color-mix(in srgb,var(--fail) 10%,white);color:var(--fail)}.finding-copy strong{display:block;font-size:12px}.finding-copy span{color:var(--charcoal);font-size:11px}.finding-value{text-align:right;font-size:11px;color:var(--charcoal)}.finding-value b{display:block;color:var(--fail);font-size:13px}
+.rail{grid-column:2;grid-row:1/span 2;min-height:0;overflow:hidden;border:1px solid var(--line);border-radius:var(--card);background:var(--paper);box-shadow:var(--shadow-card)}.rail-scroll{height:100%;overflow-y:auto}.rail-section{padding:18px;border-bottom:1px solid var(--line)}.rail-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px}.rail-section h2{margin:6px 0 0;font-size:22px;font-weight:620;letter-spacing:-.04em;line-height:1.1}.iteration-pill{padding:5px 9px;border:1px solid var(--line);border-radius:var(--pill);color:var(--charcoal);font-size:10px}.coverage-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:16px}.coverage-card{padding:12px;border:1px solid var(--line);border-radius:13px;background:var(--cloud)}.coverage-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--charcoal);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}.coverage-number{margin-top:9px;font-size:20px;font-weight:620;letter-spacing:-.04em}.coverage-detail{margin-top:3px;color:var(--charcoal);font-size:10px}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--pass)}.status-dot.fail{background:var(--fail)}.status-dot.skip{background:var(--skip)}.rail-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:12px 18px 0;padding:4px;border-radius:var(--pill);background:var(--cloud)}.rail-tab{padding:7px 5px;border:0;border-radius:var(--pill);background:transparent;color:var(--charcoal);font-size:11px;font-weight:650;cursor:pointer}.rail-tab[aria-selected=true]{background:var(--paper);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06)}.tab-panel{padding:14px 18px 18px}.check-filter{display:flex;gap:6px;margin-bottom:10px}.filter-button{padding:5px 9px;border:1px solid var(--line);border-radius:var(--pill);background:var(--paper);color:var(--charcoal);font-size:10px;cursor:pointer}.filter-button[aria-pressed=true]{border-color:var(--ink);color:var(--ink)}.check{display:grid;grid-template-columns:8px 1fr;gap:10px;width:100%;padding:11px 0;border:0;border-bottom:1px solid #ececf0;background:transparent;color:inherit;text-align:left;cursor:default}.check.locatable{cursor:pointer}.check.locatable:hover .check-id{color:var(--sky)}.check:last-child{border-bottom:0}.check-state{width:7px;height:7px;margin-top:5px;border-radius:50%;background:var(--skip)}.check.s-PASS .check-state{background:var(--pass)}.check.s-FAIL .check-state{background:var(--fail)}.check.s-ERROR .check-state{background:var(--error)}.check-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.check-id{min-width:0;overflow-wrap:anywhere;font-size:10px;font-weight:600}.check-num{flex:0 0 auto;color:var(--charcoal);font-size:10px}.check.s-FAIL .check-num b,.check.s-ERROR .check-num b{color:var(--fail)}.check-msg{margin:4px 0 0;color:var(--charcoal);font-size:10px;line-height:1.45}.check-loc{margin-top:5px;color:var(--sky);font-size:9px}.evidence-card{padding:14px;border:1px solid var(--line);border-radius:13px;background:var(--cloud)}.evidence-card+.evidence-card{margin-top:9px}.evidence-card p{margin:7px 0 0;color:var(--charcoal);font-size:11px}.evidence-card blockquote{margin:9px 0 0;padding-left:11px;border-left:2px solid var(--sky);color:var(--ink);font-size:12px}.evidence-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.micro-tag{padding:4px 7px;border:1px solid var(--line);border-radius:var(--pill);background:var(--paper);color:var(--charcoal);font-size:9px}.artifact-list{display:grid;gap:8px}.artifact-link{display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid var(--line);border-radius:12px;color:var(--ink);text-decoration:none}.artifact-link:hover{border-color:var(--sky)}.artifact-link span{color:var(--charcoal);font-size:10px}.review-actions{padding:16px 18px 18px;border-top:1px solid var(--line)}.review-actions p{margin:0 0 12px;color:var(--charcoal);font-size:11px}.review-buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px}.review-buttons .button{min-height:39px;padding:8px 12px;font-size:11px}.timeline{grid-column:1;grid-row:2;display:flex;align-items:center;gap:18px;min-width:0;padding:14px 18px;overflow-x:auto;border:1px solid var(--line);border-radius:var(--card);background:var(--paper)}.timeline-title{flex:0 0 auto}.timeline-title strong{display:block;font-size:11px}.timeline-title span{color:var(--charcoal);font-size:9px}.timeline-track{display:flex;align-items:center;min-width:max-content}.timeline-node{position:relative;display:grid;grid-template-columns:18px auto;align-items:center;gap:8px;min-width:132px;padding:6px 16px 6px 0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer}.timeline-node:not(:last-child):after{content:"";position:absolute;top:15px;right:0;width:20px;height:1px;background:var(--line)}.node-dot{display:grid;width:18px;height:18px;place-items:center;border:1px solid var(--line);border-radius:50%;background:var(--paper);color:var(--charcoal);font-size:8px}.timeline-node[aria-current=true] .node-dot{border-color:var(--obsidian);background:var(--obsidian);color:var(--paper)}.node-copy strong{display:block;font-size:10px}.node-copy span{display:block;color:var(--charcoal);font-size:9px}
+dialog{width:min(520px,calc(100% - 28px));padding:0;border:0;border-radius:22px;color:var(--ink);box-shadow:0 28px 90px rgba(15,24,35,.22)}dialog::backdrop{background:rgba(25,34,44,.28);backdrop-filter:blur(5px)}.dialog-body{padding:24px}.dialog-body h2{margin:8px 0;font-size:27px;letter-spacing:-.045em}.dialog-body>p{margin:0 0 20px;color:var(--charcoal)}.field{display:grid;gap:6px;margin-top:14px}.field label{font-size:11px;font-weight:700}.field input,.field textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:11px;color:var(--ink);background:var(--paper)}.field textarea{min-height:105px;resize:vertical}.acknowledgement{display:grid;grid-template-columns:auto 1fr;gap:9px;margin-top:16px;color:var(--charcoal);font-size:11px}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}.pin-status{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:10px;border-radius:10px;background:var(--cloud);color:var(--charcoal);font-size:10px}.toast{position:fixed;right:20px;bottom:20px;z-index:20;max-width:360px;padding:13px 16px;border-radius:12px;background:var(--obsidian);color:var(--paper);font-size:12px;box-shadow:0 18px 50px rgba(0,0,0,.18)}
+@media(max-width:980px){.topbar{grid-template-columns:1fr auto}.case-heading{display:none}.workbench-grid{grid-template-columns:1fr;grid-template-rows:58vh auto auto;height:auto}.rail{grid-column:1;grid-row:2}.timeline{grid-column:1;grid-row:3}.constraint-grid{grid-template-columns:1fr}}@media(max-width:600px){.intake-nav{width:calc(100% - 28px)}.intake-main{margin-top:2vh}.intake-copy h1{font-size:46px}.upload-card{padding:14px;border-radius:20px}.intake-actions{align-items:stretch;flex-direction:column}.top-actions .run-state,.session-link{display:none}.workbench-grid{padding:8px;gap:8px}.viewer-hint,.model-label{display:none}.finding-card{bottom:52px;grid-template-columns:auto 1fr}.finding-value{grid-column:2;text-align:left}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 </style>
-
-<div class="shell">
-  <header>
-    <span class="case-id">{{CASE_ID}}</span>
-    <span class="verdict {{VERDICT_CLASS}}">{{VERDICT}}</span>
-    <span class="tally">{{PASS_COUNT}}/{{TOTAL_COUNT}} checks passing</span>
-    <span class="meta">{{META}}</span>
-  </header>
-
-  <div class="split">
-    <div class="stage">
+</head>
+<body>
+<section class="intake" id="intake">
+  <nav class="intake-nav"><div class="brand"><span class="brand-mark">A</span><span>AutoImplants</span></div><span class="prototype-label">Research prototype · synthetic anatomy</span></nav>
+  <main class="intake-main">
+    <div class="intake-copy"><span class="eyebrow" style="color:rgba(255,255,255,.8)">Autonomous biomedical engineering</span><h1>Design the plate this femur needs.</h1><p>Upload the bone mesh. Devin will reshape a titanium fixation plate against locked engineering constraints until the enforced checks pass.</p></div>
+    <section class="upload-card" aria-labelledby="upload-title">
+      <input class="file-input" id="bone-file" type="file" accept=".stl,model/stl">
+      <label class="dropzone" id="dropzone" for="bone-file"><span><span class="upload-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 13v4.5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5V13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><strong id="upload-title">Drop a femur STL here</strong><small>or <b style="color:var(--ink)">choose a file</b> · surface mesh only</small><br><button class="link-button" id="use-demo" type="button" style="margin-top:12px">Use the locked demo femur</button></span></label>
+      <div id="case-review" hidden>
+        <div class="selected-file"><span class="file-glyph"><svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M7 3.5h7l4 4V20H7zM14 3.5V8h4" stroke="currentColor" stroke-width="1.5"/></svg></span><span class="file-meta"><strong id="file-name">bone.stl</strong><span id="file-size">Embedded mesh · ready</span></span><span class="ready-mark">Ready</span></div>
+        <div class="constraints"><div class="constraints-head"><span class="eyebrow">Locked case constraints</span><span class="locked-badge">⌑ Devin cannot edit these</span></div><div class="constraint-grid" id="constraint-grid"></div></div>
+        <label class="run-confirm"><input id="cost-ack" type="checkbox"><span><strong id="cost-title">Authorize up to 15 ACU</strong><span id="cost-copy">Three Devin turns at a locked maximum of 5 ACU each. Unused turns are not started after convergence.</span></span></label><div class="preflight" id="preflight">Checking Devin and Git readiness…</div>
+        <div class="intake-actions"><p>Starting records the mesh and constraints as immutable case input.</p><button class="button" id="start-run" type="button" disabled>Start autonomous design <span>→</span></button></div>
+      </div>
+    </section>
+  </main>
+</section>
+<section class="workbench" id="workbench" hidden>
+  <header class="topbar"><div class="brand"><span class="brand-mark">A</span><span>AutoImplants</span></div><div class="case-heading"><strong>{{CASE_ID}}</strong><span id="case-subtitle">Prototype engineering record</span></div><div class="top-actions"><span class="run-state" id="run-state"><span class="run-dot"></span><span id="run-state-label">Engineering review</span></span><button class="button quiet session-link" id="resume-button" type="button" hidden>Resume</button><a class="button quiet session-link" id="session-link" href="#" target="_blank" rel="noreferrer" aria-disabled="true">Open Devin ↗</a></div></header>
+  <div class="coverage-banner"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M12 10.5V16m0-8.5v.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span id="coverage-message">Geometry and stress are reported separately. Skipped checks never count as passing.</span></div>
+  <main class="workbench-grid">
+    <section class="stage-card" aria-label="3D femur and implant viewer">
       <canvas id="view"></canvas>
-      <div class="controls">
-        <button class="chip" id="t-bone" aria-pressed="true">bone</button>
-        <button class="chip" id="t-ghost" aria-pressed="false">ghost</button>
-        <button class="chip" id="t-implant" aria-pressed="true">implant</button>
-        <button class="chip" id="t-marks" aria-pressed="true">findings</button>
-        <button class="chip" id="t-reset">reset view</button>
-      </div>
-      <div class="readout">
-        <span id="r-orient">azimuth 0&deg; &middot; elevation 0&deg;</span>
-        <span id="r-scale">&mdash;</span>
-      </div>
-      <p class="hint">drag to orbit &middot; scroll to zoom</p>
-    </div>
-
-    <aside class="rail">
-      <div class="rail-head">
-        <div class="eyebrow">Validation report</div>
-        <p class="rail-note">Checks with a reported location are clickable &mdash; the camera aims at the coordinate the validator measured.</p>
-      </div>
-      <div id="checks"></div>
-    </aside>
-  </div>
-</div>
-
+      <div class="viewer-controls"><button class="chip" id="t-bone" aria-pressed="true">Bone</button><button class="chip" id="t-implant" aria-pressed="true">Implant</button><button class="chip" id="t-planning" aria-pressed="true">Planning</button><button class="chip" id="t-marks" aria-pressed="true">Findings</button><button class="chip" id="t-compare" aria-pressed="false" disabled title="Available after the first revision">Compare</button><button class="chip" id="t-reset">Reset view</button></div>
+      <div class="model-label"><strong id="model-label-title">Current validated solid</strong><br>The model updates only when an iteration has a report.</div><div class="viewer-readout mono"><span id="r-orient">azimuth 0° · elevation 0°</span><br><span id="r-scale">—</span></div><p class="viewer-hint mono">drag to orbit · shift-drag to pan · scroll to zoom</p>
+      <button class="finding-card" id="finding-card" type="button" hidden><span class="finding-icon">!</span><span class="finding-copy"><strong id="finding-name">Current blocker</strong><span id="finding-message"></span></span><span class="finding-value mono"><b id="finding-value">—</b><span id="finding-limit">—</span></span></button>
+    </section>
+    <aside class="rail" aria-label="Engineering evidence"><div class="rail-scroll">
+      <section class="rail-section"><div class="rail-title-row"><div><span class="eyebrow">Engineering status</span><h2 id="engineering-status">Reviewing baseline</h2></div><span class="iteration-pill mono" id="iteration-pill">Baseline</span></div><div class="coverage-grid"><div class="coverage-card"><div class="coverage-card-head"><span>Geometry</span><span class="status-dot" id="geometry-dot"></span></div><div class="coverage-number mono" id="geometry-number">—</div><div class="coverage-detail" id="geometry-detail">Loading report</div></div><div class="coverage-card"><div class="coverage-card-head"><span>Stress</span><span class="status-dot skip" id="stress-dot"></span></div><div class="coverage-number mono" id="stress-number">—</div><div class="coverage-detail" id="stress-detail">Loading report</div></div></div></section>
+      <div class="rail-tabs" role="tablist"><button class="rail-tab" role="tab" aria-selected="true" aria-controls="panel-checks">Checks</button><button class="rail-tab" role="tab" aria-selected="false" aria-controls="panel-engineering">Engineering</button><button class="rail-tab" role="tab" aria-selected="false" aria-controls="panel-files">Files</button></div>
+      <section class="tab-panel" id="panel-checks"><div class="check-filter"><button class="filter-button" data-filter="all" aria-pressed="true">All</button><button class="filter-button" data-filter="geometry" aria-pressed="false">Geometry</button><button class="filter-button" data-filter="stress" aria-pressed="false">Stress</button></div><div id="checks"></div></section>
+      <section class="tab-panel" id="panel-engineering" hidden><div class="evidence-card"><span class="eyebrow">Commit rationale</span><blockquote id="rationale"></blockquote><div class="evidence-meta"><span class="micro-tag mono" id="commit-sha">No commit</span><span class="micro-tag" id="topology-tag">Baseline geometry</span></div></div><div class="evidence-card"><span class="eyebrow">Why this is engineering</span><p>The shape, validator location, code diff, and commit rationale belong to the same validated iteration.</p></div></section>
+      <section class="tab-panel" id="panel-files" hidden><div class="artifact-list" id="artifact-list"></div></section>
+      <section class="review-actions" id="review-actions" hidden><p><strong>Ready for prototype review.</strong><br>Approval records this geometry only; it does not make a clinical safety claim.</p><div class="review-buttons"><button class="button" id="approve-button">Approve prototype</button><button class="button secondary" id="revision-button">Request changes</button></div></section>
+    </div></aside>
+    <nav class="timeline"><div class="timeline-title"><strong>Design history</strong><span>Every validated solid</span></div><div class="timeline-track" id="timeline-track"></div></nav>
+  </main>
+</section>
+<dialog id="approve-dialog"><form class="dialog-body" id="approve-form" method="dialog"><span class="eyebrow">Prototype decision</span><h2>Approve this geometry?</h2><p>The decision is tied to the selected iteration and artifact.</p><div class="field"><label for="reviewer-name">Reviewer name</label><input id="reviewer-name" autocomplete="name" required></div><label class="acknowledgement"><input id="stress-ack" type="checkbox" required><span>I understand that skipped checks were not validated and this prototype is not for clinical use.</span></label><div class="dialog-actions"><button class="button quiet" value="cancel">Cancel</button><button class="button" value="approve">Approve prototype</button></div></form></dialog>
+<dialog id="revision-dialog"><form class="dialog-body" id="revision-form" method="dialog"><span class="eyebrow">Revision request</span><h2>Tell Devin what must change.</h2><p>The note becomes an immutable requirement. Locked constraints remain unchanged.</p><div class="field"><label for="revision-reviewer">Reviewer name</label><input id="revision-reviewer" autocomplete="name" required></div><div class="field"><label for="revision-feedback">Required feedback</label><textarea id="revision-feedback" required placeholder="Describe the fit, profile, access, or other geometry concern…"></textarea></div><div class="pin-status"><span id="pin-copy">No model location attached</span><button class="link-button" id="place-pin" type="button">Place a 3D pin</button></div><label class="acknowledgement"><input id="revision-cost-ack" type="checkbox" required><span>Start a fresh revision cycle capped at 15 ACU.</span></label><div class="dialog-actions"><button class="button quiet" value="cancel">Cancel</button><button class="button" value="revise">Request revision</button></div></form></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <script id="payload" type="application/json">{{DATA}}</script>
 <script>
-(() => {
-  "use strict";
+(()=>{"use strict";
+const rawPayload=document.getElementById("payload").textContent;let DATA,templateFallback=false;try{DATA=JSON.parse(rawPayload)}catch{templateFallback=true;DATA={case:{id:"New femur case",material:{name:"Ti-6Al-4V (Grade 5)"},envelope:{max_length_mm:180,max_width_mm:20},load_cases:[],iteration_budget:8,screws:[],keepouts:[]},meshes:[{name:"bone",color:"#ddd7cc",v:[0,0,0,1,0,0,0,1,0],f:[0,1,2],faces:1}],iterations:[{number:0,label:"Uploaded mesh",rationale:"No autonomous geometry edit has been committed yet.",commit_sha:"",session_url:"",topology_changed:false,checks:[],coverage:{geometry:{PASS:0,FAIL:0,SKIP:0,ERROR:0,TOTAL:0},stress:{PASS:0,FAIL:0,SKIP:0,ERROR:0,TOTAL:0}},geometry_converged:false,artifacts:{stl:"#",step:"#",report:"#"}}],active_iteration:0,server_mode:false}}
+const STRESS_IDS=new Set(["stress_max_bending","stress_hole_0","stress_hole_1","stress_hole_2","stress_hole_3","stress_hole_4","stress_hole_5","screw_pullout_min"]),$=id=>document.getElementById(id),reduced=matchMedia("(prefers-reduced-motion: reduce)").matches,NUM=new Intl.NumberFormat("en-US",{maximumFractionDigits:3}),fmt=v=>v==null?"—":NUM.format(+v),esc=v=>String(v??"").replace(/[&<>'\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[c]);
+const SERVER=!!DATA.server_mode,RUN_MAX=Math.max(1,Math.min(3,Number(new URLSearchParams(location.search).get("max_iterations"))||3));let activeIteration=DATA.active_iteration||0,activeCheck=null,currentFilter="all",uploadedMesh=null,uploadedFile=null,feedbackPin=null,pinMode=false,currentRun=null,eventSource=null,loadedMeshIteration=null,preflightReady=!SERVER;
+function toast(message){$("toast").textContent=message;$("toast").hidden=false;setTimeout(()=>$("toast").hidden=true,3500)}
+const CASE=DATA.case,material=CASE.material||{},envelope=CASE.envelope||{},constraints=[["Material",material.name||"Ti-6Al-4V"],["Fixed plan",`${(CASE.screws||[]).length} screw positions`],["No-go anatomy",`${(CASE.keepouts||[]).length} keepout zones`],["Plate envelope",`${envelope.max_length_mm||"—"} × ${envelope.max_width_mm||"—"} mm`],["Load cases",`${(CASE.load_cases||[]).length} locked cases`],["Iteration cap",`${SERVER?RUN_MAX:CASE.iteration_budget||8} agent turn${SERVER&&RUN_MAX===1?"":"s"}`]];
+document.querySelector(".case-heading strong").textContent=CASE.id;
+$("constraint-grid").innerHTML=constraints.map(([l,v])=>`<div class="constraint-card"><span>${esc(l)}</span><strong>${esc(v)}</strong></div>`).join("");
+if(SERVER){$("cost-title").textContent=`Authorize up to ${RUN_MAX*5} ACU`;$("cost-copy").textContent=`${RUN_MAX===1?"One":RUN_MAX===2?"Two":"Three"} Devin turn${RUN_MAX===1?"":"s"} at a locked maximum of 5 ACU each. Unused turns are not started after convergence.`}
+if(templateFallback||!SERVER){$("use-demo").hidden=true;$("start-run").disabled=false;$("start-run").innerHTML="Preview mesh <span>→</span>";$("cost-ack").closest("label").hidden=true;$("preflight").hidden=true;document.querySelector(".prototype-label").textContent="Standalone mesh preview"}
+function reveal(name,detail){$("dropzone").hidden=true;$("case-review").hidden=false;$("file-name").textContent=name;$("file-size").textContent=detail}
+$("use-demo").onclick=async e=>{e.preventDefault();e.stopPropagation();try{const response=await fetch("/api/demo-bone");if(!response.ok)throw Error("demo mesh unavailable");const blob=await response.blob();uploadedFile=new File([blob],"bone.stl",{type:"model/stl"});uploadedMesh=parseSTL(await uploadedFile.arrayBuffer(),uploadedFile.name);reveal("bone.stl","Locked synthetic femur · server-verified input");updateStart()}catch(error){toast(`Could not load the demo femur: ${error.message}`)}};
+for(const name of ["dragenter","dragover"])$("dropzone").addEventListener(name,e=>{e.preventDefault();$("dropzone").classList.add("dragging")});for(const name of ["dragleave","drop"])$("dropzone").addEventListener(name,e=>{e.preventDefault();$("dropzone").classList.remove("dragging")});
+$("dropzone").addEventListener("drop",e=>handleFile(e.dataTransfer.files[0]));$("bone-file").onchange=e=>handleFile(e.target.files[0]);
+async function handleFile(file){if(!file)return;if(!file.name.toLowerCase().endsWith(".stl")){toast("Choose the bundled demo bone.stl to continue.");return}try{uploadedFile=file;uploadedMesh=parseSTL(await file.arrayBuffer(),file.name);reveal(file.name,`${(file.size/1048576).toFixed(2)} MB · ${uploadedMesh.faces.length/3} display triangles`);updateStart()}catch(error){uploadedFile=null;toast(`The STL could not be read: ${error.message}`)}}
+function updateStart(){if(!SERVER)return;$("start-run").disabled=!(uploadedFile&&$("cost-ack").checked&&preflightReady)}$("cost-ack").onchange=updateStart;
+async function api(url,options={}){const response=await fetch(url,options);if(!response.ok){let detail=`Request failed (${response.status})`;try{const body=await response.json();detail=body.detail||detail}catch{}throw Error(detail)}return response.json()}
+async function checkPreflight(){if(!SERVER)return;try{const state=await api("/api/preflight");preflightReady=state.ready;$("preflight").className=`preflight ${state.ready?"ready":"error"}`;$("preflight").textContent=state.ready?"Devin credentials, permissions, and origin/main are ready.":state.errors.join(" · ")||"Live workflow is not ready."}catch(error){preflightReady=false;$("preflight").className="preflight error";$("preflight").textContent=error.message}updateStart()}
+function openWorkbench(){if(uploadedMesh){meshes[0]=uploadedMesh;rebuild()}$("intake").hidden=true;$("workbench").hidden=false;$("run-state").classList.add("working");requestAnimationFrame(()=>{rebuild();draw()})}
+$("start-run").onclick=async()=>{if(!SERVER){openWorkbench();$("run-state-label").textContent="Mesh preview · backend not connected";$("coverage-message").textContent="Start python -m autoimplants.server to run the live Devin workflow.";return}if(!uploadedFile)return;$("start-run").disabled=true;$("start-run").textContent="Starting…";const form=new FormData();form.append("bone",uploadedFile,"bone.stl");form.append("max_iterations",String(RUN_MAX));form.append("acu_per_iteration","5");form.append("cost_ack","true");try{currentRun=await api("/api/runs",{method:"POST",body:form});openWorkbench();applyRun(currentRun);connectRun(currentRun.run_id)}catch(error){toast(error.message);$("start-run").innerHTML="Start autonomous design <span>→</span>";updateStart()}};
 
-  const DATA = JSON.parse(document.getElementById("payload").textContent);
-  const canvas = document.getElementById("view");
-  const ctx = canvas.getContext("2d");
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const canvas=$("view"),ctx=canvas.getContext("2d"),toMesh=m=>({name:m.name,color:m.color,verts:Float32Array.from(m.v),faces:Uint32Array.from(m.f),visible:true,alpha:1,spec:m.name.includes("implant")});let meshes=DATA.meshes.map(toMesh),centre=[0,0,0],extent=1,order=new Uint32Array(0),depth=new Float32Array(0),owner=new Uint8Array(0),faceIx=new Uint32Array(0),projected=[],scale=1,ox=0,oy=0,showMarks=true,showPlanning=true;const HOME={az:74,el:12,zoom:1,tx:0,ty:0},cam={...HOME},LIGHT=[-.35,-.52,.78];
+function rebuild(){const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];let total=0;for(const m of meshes){for(let i=0;i<m.verts.length;i+=3)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],m.verts[i+k]);hi[k]=Math.max(hi[k],m.verts[i+k])}total+=m.faces.length/3}centre=lo.some(v=>!isFinite(v))?[0,0,0]:lo.map((v,i)=>(v+hi[i])/2);extent=Math.max(...hi.map((v,i)=>v-lo[i]).filter(Number.isFinite))||1;order=new Uint32Array(total);depth=new Float32Array(total);owner=new Uint8Array(total);faceIx=new Uint32Array(total);projected=meshes.map(m=>new Float32Array(m.verts.length))}
+async function loadIterationMesh(iteration){if(!SERVER||loadedMeshIteration===iteration.number||!iteration.artifacts?.mesh)return;try{const payload=await api(iteration.artifacts.mesh);meshes=payload.meshes.map(toMesh);loadedMeshIteration=iteration.number;rebuild();draw()}catch(error){toast(`Validated mesh could not be loaded: ${error.message}`)}}
+function statusLabel(run){if(run.status==="queued"||run.status==="revision_queued")return`Queued${run.queue_position?` · position ${run.queue_position}`:""} · max ${run.max_acu} ACU`;return run.phase||run.status.replaceAll("_"," ")}
+function applyRun(run){currentRun=run;$("run-state-label").textContent=statusLabel(run);$("case-subtitle").textContent=`Revision ${run.revision} · ${run.total_iterations}/${run.max_iterations} turns · max ${run.max_acu} ACU`;const working=["queued","revision_queued","preparing","validating","devin_running","fetching","guarding","validating_result"].includes(run.status);$("run-state").classList.toggle("working",working);$("resume-button").hidden=run.status!=="needs_attention";const session=run.active_session?.url||run.iterations?.at(-1)?.session_url||"",link=$("session-link");if(session){link.href=session;link.removeAttribute("aria-disabled")}else{link.href="#";link.setAttribute("aria-disabled","true")}if(run.error)toast(run.error);if(run.iterations?.length){const previous=current()?.number;DATA.iterations=run.iterations;activeIteration=DATA.iterations.length-1;activeCheck=null;render();const latest=current();if(previous!==latest.number||loadedMeshIteration!==latest.number)loadIterationMesh(latest)}}
+function connectRun(runId){if(eventSource)eventSource.close();eventSource=new EventSource(`/api/runs/${runId}/events`);eventSource.addEventListener("snapshot",event=>applyRun(JSON.parse(event.data)));eventSource.onerror=()=>{$("run-state-label").textContent="Reconnecting to the run record…"}}
+async function restoreRun(){if(!SERVER)return;try{const runs=await api("/api/runs"),candidate=runs.find(run=>!["approved","failed","invalid","capped"].includes(run.status));if(candidate){currentRun=candidate;openWorkbench();applyRun(candidate);connectRun(candidate.run_id)}}catch{}}
+function parseSTL(buffer,name){const view=new DataView(buffer),count=buffer.byteLength>=84?view.getUint32(80,true):0,binary=count>0&&84+count*50<=buffer.byteLength,v=[],f=[];let triangles=0;if(binary){const stride=Math.max(1,Math.ceil(count/12000));for(let t=0;t<count;t+=stride){const offset=96+t*50,base=v.length/3;for(let p=0;p<3;p++)for(let a=0;a<3;a++)v.push(view.getFloat32(offset+p*12+a*4,true));f.push(base,base+1,base+2);triangles++}}else{const found=[...new TextDecoder().decode(buffer).matchAll(/vertex\s+([-+\deE.]+)\s+([-+\deE.]+)\s+([-+\deE.]+)/g)];if(found.length<3)throw Error("no triangles found");const stride=Math.max(1,Math.ceil(found.length/3/12000));for(let t=0;t<found.length/3;t+=stride){const base=v.length/3;for(let p=0;p<3;p++){const m=found[t*3+p];v.push(+m[1],+m[2],+m[3])}f.push(base,base+1,base+2);triangles++}}if(!triangles)throw Error("empty mesh");return{name:`bone:${name}`,color:"#ddd7cc",verts:Float32Array.from(v),faces:Uint32Array.from(f),visible:true,alpha:1,spec:false}}
+function rotation(){const a=cam.az*Math.PI/180,e=cam.el*Math.PI/180,ca=Math.cos(a),sa=Math.sin(a),ce=Math.cos(e),se=Math.sin(e);return[ca,-sa,0,se*sa,se*ca,-ce,ce*sa,ce*ca,se]}
+function project(){const R=rotation(),w=canvas.clientWidth,h=canvas.clientHeight;scale=Math.min(w,h)/extent*.78*cam.zoom;ox=w/2+cam.tx;oy=h/2+cam.ty;meshes.forEach((m,mi)=>{const out=projected[mi];for(let i=0;i<m.verts.length;i+=3){const x=m.verts[i]-centre[0],y=m.verts[i+1]-centre[1],z=m.verts[i+2]-centre[2];out[i]=ox+(R[0]*x+R[1]*y+R[2]*z)*scale;out[i+1]=oy-(R[3]*x+R[4]*y+R[5]*z)*scale;out[i+2]=R[6]*x+R[7]*y+R[8]*z}});return R}function point(p,R){const x=p[0]-centre[0],y=p[1]-centre[1],z=p[2]-centre[2];return[ox+(R[0]*x+R[1]*y+R[2]*z)*scale,oy-(R[3]*x+R[4]*y+R[5]*z)*scale,R[6]*x+R[7]*y+R[8]*z]}function shade(hex,n){const c=s=>Math.max(0,Math.min(255,Math.round(parseInt(hex.slice(s,s+2),16)*n)));return`rgb(${c(1)},${c(3)},${c(5)})`}
+function draw(){if($("workbench").hidden)return;const dpr=Math.min(devicePixelRatio||1,2),w=canvas.clientWidth,h=canvas.clientHeight;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);const R=project();let n=0;meshes.forEach((m,mi)=>{if(!m.visible)return;const p=projected[mi];for(let i=0;i<m.faces.length;i+=3){const a=m.faces[i]*3,b=m.faces[i+1]*3,c=m.faces[i+2]*3;depth[n]=(p[a+2]+p[b+2]+p[c+2])/3;owner[n]=mi;faceIx[n]=i;order[n]=n;n++}});const sorted=order.subarray(0,n);Array.prototype.sort.call(sorted,(a,b)=>depth[a]-depth[b]);for(let k=0;k<n;k++){const index=sorted[k],m=meshes[owner[index]],p=projected[owner[index]],f=m.faces,i=faceIx[index],a=f[i]*3,b=f[i+1]*3,c=f[i+2]*3,ux=p[b]-p[a],uy=p[b+1]-p[a+1],uz=p[b+2]-p[a+2],vx=p[c]-p[a],vy=p[c+1]-p[a+1],vz=p[c+2]-p[a+2];let nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx,len=Math.hypot(nx,ny,nz)||1;nx/=len;ny/=len;nz/=len;if(nz<0){nx=-nx;ny=-ny;nz=-nz}const l=Math.max(0,nx*LIGHT[0]-ny*LIGHT[1]+nz*LIGHT[2]),tone=.42+.72*l+(m.spec?.36*Math.pow(l,8):0);ctx.beginPath();ctx.moveTo(p[a],p[a+1]);ctx.lineTo(p[b],p[b+1]);ctx.lineTo(p[c],p[c+1]);ctx.closePath();ctx.globalAlpha=m.alpha;ctx.fillStyle=shade(m.color,tone);ctx.fill()}ctx.globalAlpha=1;if(showPlanning)planning(R);if(showMarks)marks(R);$("r-scale").textContent=`scale ${Math.max(1,Math.round(70/scale))} mm`;$("r-orient").textContent=`azimuth ${Math.round((cam.az%360+360)%360)}° · elevation ${Math.round(cam.el)}°`}
+function planning(R){const blue=getComputedStyle(document.documentElement).getPropertyValue("--sky").trim();ctx.strokeStyle=blue;ctx.fillStyle=blue;ctx.lineWidth=1.25;for(const s of CASE.screws||[]){const a=point(s.entry_mm,R),b=point(s.entry_mm.map((v,i)=>v+s.direction[i]*s.length_mm),R);ctx.globalAlpha=.58;ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.beginPath();ctx.arc(a[0],a[1],3,0,Math.PI*2);ctx.fill()}for(const z of CASE.keepouts||[]){const p=point(z.center_mm,R),r=Math.max(5,z.radius_mm*scale);ctx.globalAlpha=.13;ctx.beginPath();ctx.arc(p[0],p[1],r,0,Math.PI*2);ctx.fill();ctx.globalAlpha=.54;ctx.setLineDash([4,4]);ctx.stroke();ctx.setLineDash([])}ctx.globalAlpha=1}
+function marks(R){const styles=getComputedStyle(document.documentElement);for(const c of current().checks||[]){if(!c.location||(c.status==="PASS"&&activeCheck!==c.id))continue;const p=point(c.location,R),active=activeCheck===c.id,color=styles.getPropertyValue(c.status==="FAIL"?"--fail":"--sky").trim();ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=active?2.5:1.5;ctx.beginPath();ctx.arc(p[0],p[1],active?13:8,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(p[0],p[1],2,0,Math.PI*2);ctx.fill();if(active){ctx.font='600 10px "IBM Plex Mono"';ctx.fillText(c.id,p[0]+18,p[1]+4)}}if(feedbackPin){const p=point(feedbackPin,R);ctx.fillStyle="#070709";ctx.beginPath();ctx.arc(p[0],p[1],5,0,Math.PI*2);ctx.fill();ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.stroke()}}
+let dragging=false,lastX=0,lastY=0,panning=false;canvas.onpointerdown=e=>{dragging=true;panning=e.shiftKey||e.button===1;lastX=e.clientX;lastY=e.clientY;canvas.classList.add("dragging");canvas.setPointerCapture(e.pointerId)};canvas.onpointermove=e=>{if(!dragging)return;const dx=e.clientX-lastX,dy=e.clientY-lastY;lastX=e.clientX;lastY=e.clientY;if(panning){cam.tx+=dx;cam.ty+=dy}else{cam.az+=dx*.5;cam.el=Math.max(-88,Math.min(88,cam.el+dy*.4))}draw()};const stop=e=>{dragging=false;canvas.classList.remove("dragging");if(e.pointerId!==undefined&&canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId)};canvas.onpointerup=stop;canvas.onpointercancel=stop;canvas.addEventListener("wheel",e=>{e.preventDefault();cam.zoom=Math.max(.3,Math.min(9,cam.zoom*(e.deltaY<0?1.12:1/1.12)));draw()},{passive:false});canvas.onclick=e=>{if(!pinMode)return;feedbackPin=nearest(e.offsetX,e.offsetY);pinMode=false;canvas.classList.remove("pin-mode");$("revision-dialog").showModal();$("pin-copy").textContent=feedbackPin?`Pinned at ${feedbackPin.map(v=>v.toFixed(1)).join(", ")} mm`:"No model location attached";draw()};function nearest(x,y){project();const m=meshes[0],p=projected[0];let best=null,d=Infinity;for(let i=0;i<p.length;i+=3){const q=(p[i]-x)**2+(p[i+1]-y)**2;if(q<d){d=q;best=[m.verts[i],m.verts[i+1],m.verts[i+2]]}}return best}
+function toggle(id,fn){$(id).onclick=()=>{const on=$(id).getAttribute("aria-pressed")!=="true";$(id).setAttribute("aria-pressed",String(on));fn(on);draw()}}toggle("t-bone",on=>meshes[0].visible=on);toggle("t-implant",on=>{for(let i=1;i<meshes.length;i++)meshes[i].visible=on});toggle("t-planning",on=>showPlanning=on);toggle("t-marks",on=>showMarks=on);$("t-reset").onclick=()=>{Object.assign(cam,HOME);activeCheck=null;draw()};
 
-  // ---- geometry ------------------------------------------------------------
-  // Meshes arrive as flat arrays. Everything is kept in typed arrays and the
-  // whole scene is depth-sorted as one list, so the implant and the bone
-  // interleave correctly instead of one always drawing over the other.
-
-  const meshes = DATA.meshes.map((m) => ({
-    name: m.name,
-    color: m.color,
-    verts: Float32Array.from(m.v),
-    faces: Uint32Array.from(m.f),
-    visible: true,
-    alpha: 1,
-    spec: m.name === "implant",
-  }));
-
-  const all = Float32Array.from(meshes.flatMap((m) => Array.from(m.verts)));
-  const centre = [0, 0, 0];
-  const lo = [Infinity, Infinity, Infinity];
-  const hi = [-Infinity, -Infinity, -Infinity];
-  for (let i = 0; i < all.length; i += 3) {
-    for (let k = 0; k < 3; k++) {
-      lo[k] = Math.min(lo[k], all[i + k]);
-      hi[k] = Math.max(hi[k], all[i + k]);
-    }
-  }
-  for (let k = 0; k < 3; k++) centre[k] = (lo[k] + hi[k]) / 2;
-  const extent = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
-
-  // The plate mounts on +X, so the camera opens looking down +X with a small
-  // offset -- dead-on is edge-on to a flat plate and reads as a stripe. Getting
-  // this wrong hides the implant behind the bone, which is the one thing the
-  // page exists to show.
-  const HOME = { az: 74, el: 12, zoom: 1, tx: 0, ty: 0 };
-  const cam = { ...HOME };
-
-  let totalFaces = 0;
-  for (const m of meshes) totalFaces += m.faces.length / 3;
-  const order = new Uint32Array(totalFaces);
-  const depth = new Float32Array(totalFaces);
-  const owner = new Uint8Array(totalFaces);
-  const faceIx = new Uint32Array(totalFaces);
-  const projected = meshes.map((m) => new Float32Array(m.verts.length));
-
-  function rotation() {
-    const a = (cam.az * Math.PI) / 180;
-    const e = (cam.el * Math.PI) / 180;
-    const ca = Math.cos(a), sa = Math.sin(a);
-    const ce = Math.cos(e), se = Math.sin(e);
-    // Z is the shaft axis, so it stays vertical on screen: yaw about Z, then
-    // pitch. A free trackball would let the femur tumble, which reads as broken
-    // to anyone used to a planning viewer.
-    return [
-      ca, -sa, 0,
-      se * sa, se * ca, -ce,
-      ce * sa, ce * ca, se,
-    ];
-  }
-
-  let scalePxPerMm = 1, originX = 0, originY = 0;
-
-  function project() {
-    const R = rotation();
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    scalePxPerMm = (Math.min(w, h) / extent) * 0.78 * cam.zoom;
-    originX = w / 2 + cam.tx;
-    originY = h / 2 + cam.ty;
-
-    for (let mi = 0; mi < meshes.length; mi++) {
-      const v = meshes[mi].verts, out = projected[mi];
-      for (let i = 0; i < v.length; i += 3) {
-        const x = v[i] - centre[0], y = v[i + 1] - centre[1], z = v[i + 2] - centre[2];
-        const rx = R[0] * x + R[1] * y + R[2] * z;
-        const ry = R[3] * x + R[4] * y + R[5] * z;
-        const rz = R[6] * x + R[7] * y + R[8] * z;
-        out[i] = originX + rx * scalePxPerMm;
-        out[i + 1] = originY - ry * scalePxPerMm;
-        out[i + 2] = rz;
-      }
-    }
-    return R;
-  }
-
-  function projectPoint(p, R) {
-    const x = p[0] - centre[0], y = p[1] - centre[1], z = p[2] - centre[2];
-    const rx = R[0] * x + R[1] * y + R[2] * z;
-    const ry = R[3] * x + R[4] * y + R[5] * z;
-    const rz = R[6] * x + R[7] * y + R[8] * z;
-    return [originX + rx * scalePxPerMm, originY - ry * scalePxPerMm, rz];
-  }
-
-  const LIGHT = (() => {
-    const l = [-0.42, -0.55, 0.72];
-    const n = Math.hypot(l[0], l[1], l[2]);
-    return [l[0] / n, l[1] / n, l[2] / n];
-  })();
-
-  function shade(hex, amount) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    const f = (c) => Math.max(0, Math.min(255, Math.round(c * amount)));
-    return `rgb(${f(r)},${f(g)},${f(b)})`;
-  }
-
-  let activeCheck = null;
-
-  function draw() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
-    const R = project();
-
-    let n = 0;
-    for (let mi = 0; mi < meshes.length; mi++) {
-      const m = meshes[mi];
-      if (!m.visible) continue;
-      const p = projected[mi], f = m.faces;
-      for (let i = 0; i < f.length; i += 3) {
-        const a = f[i] * 3, b = f[i + 1] * 3, c = f[i + 2] * 3;
-        depth[n] = (p[a + 2] + p[b + 2] + p[c + 2]) / 3;
-        owner[n] = mi;
-        faceIx[n] = i;
-        order[n] = n;
-        n++;
-      }
-    }
-
-    const view = order.subarray(0, n);
-    // Sort back-to-front. Painter's algorithm is exact enough here: the parts
-    // are convex-ish and never interpenetrate -- if they did, that is itself a
-    // failing check.
-    Array.prototype.sort.call(view, (i, j) => depth[i] - depth[j]);
-
-    for (let k = 0; k < n; k++) {
-      const idx = view[k];
-      const m = meshes[owner[idx]];
-      const p = projected[owner[idx]];
-      const f = m.faces, i = faceIx[idx];
-      const a = f[i] * 3, b = f[i + 1] * 3, c = f[i + 2] * 3;
-
-      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
-      const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
-      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      const len = Math.hypot(nx, ny, nz) || 1;
-      nx /= len; ny /= len; nz /= len;
-
-      // Two-sided lighting: flip any normal pointing away from the camera before
-      // shading it. Winding is not consistent between the two meshes -- the bone
-      // comes from make_bone.py and the implant from a CAD kernel -- and lighting
-      // a back-facing normal renders the whole plate at ambient, which read as a
-      // black stripe on the bone. The face we can see is the one facing us.
-      if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
-
-      const lambert = Math.max(0, nx * LIGHT[0] - ny * LIGHT[1] + nz * LIGHT[2]);
-      const tone = 0.30 + 0.95 * lambert + (m.spec ? 0.55 * Math.pow(lambert, 9) : 0);
-
-      ctx.beginPath();
-      ctx.moveTo(p[a], p[a + 1]);
-      ctx.lineTo(p[b], p[b + 1]);
-      ctx.lineTo(p[c], p[c + 1]);
-      ctx.closePath();
-      ctx.globalAlpha = m.alpha;
-      ctx.fillStyle = shade(m.color, tone);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    if (showMarks) drawMarks(R);
-    drawScaleBar();
-
-    document.getElementById("r-orient").textContent =
-      `azimuth ${Math.round(((cam.az % 360) + 360) % 360)}° · elevation ${Math.round(cam.el)}°`;
-  }
-
-  function drawMarks(R) {
-    const style = getComputedStyle(document.documentElement);
-    for (const c of DATA.checks) {
-      if (!c.location) continue;
-      const isActive = activeCheck === c.id;
-      if (c.status === "PASS" && !isActive) continue;
-
-      const [x, y] = projectPoint(c.location, R);
-      const color = style.getPropertyValue(c.status === "FAIL" ? "--fail" : "--accent").trim();
-      const r = isActive ? 13 : 8;
-
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = isActive ? 2.5 : 1.5;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(x, y, 2, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-
-      if (isActive) {
-        ctx.font = '600 11px "IBM Plex Mono", monospace';
-        ctx.fillStyle = color;
-        ctx.fillText(c.id, x + r + 6, y + 4);
-      }
-    }
-  }
-
-  function drawScaleBar() {
-    const style = getComputedStyle(document.documentElement);
-    const target = 90;
-    const raw = target / scalePxPerMm;
-    const pow = Math.pow(10, Math.floor(Math.log10(raw)));
-    const mm = [1, 2, 5, 10].map((s) => s * pow).find((v) => v * scalePxPerMm >= 55) || pow * 10;
-    const px = mm * scalePxPerMm;
-    const y = canvas.clientHeight - 52;
-    const x = 16;
-
-    ctx.strokeStyle = style.getPropertyValue("--ink-faint").trim();
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x, y); ctx.lineTo(x + px, y);
-    ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4);
-    ctx.moveTo(x + px, y - 4); ctx.lineTo(x + px, y + 4);
-    ctx.stroke();
-    document.getElementById("r-scale").textContent = `scale bar ${mm} mm`;
-  }
-
-  // ---- interaction ---------------------------------------------------------
-
-  let showMarks = true;
-  let dragging = false, lastX = 0, lastY = 0, panning = false;
-
-  canvas.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    panning = e.shiftKey || e.button === 1;
-    lastX = e.clientX; lastY = e.clientY;
-    canvas.classList.add("dragging");
-    canvas.setPointerCapture(e.pointerId);
-  });
-
-  canvas.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - lastX, dy = e.clientY - lastY;
-    lastX = e.clientX; lastY = e.clientY;
-    if (panning) {
-      cam.tx += dx; cam.ty += dy;
-    } else {
-      cam.az += dx * 0.5;
-      cam.el = Math.max(-88, Math.min(88, cam.el + dy * 0.4));
-    }
-    draw();
-  });
-
-  const stop = (e) => {
-    dragging = false;
-    canvas.classList.remove("dragging");
-    if (e.pointerId !== undefined && canvas.hasPointerCapture(e.pointerId)) {
-      canvas.releasePointerCapture(e.pointerId);
-    }
-  };
-  canvas.addEventListener("pointerup", stop);
-  canvas.addEventListener("pointercancel", stop);
-
-  canvas.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    cam.zoom = Math.max(0.3, Math.min(9, cam.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
-    draw();
-  }, { passive: false });
-
-  function toggle(id, fn) {
-    const el = document.getElementById(id);
-    el.addEventListener("click", () => {
-      const next = el.getAttribute("aria-pressed") !== "true";
-      el.setAttribute("aria-pressed", String(next));
-      fn(next);
-      draw();
-    });
-  }
-
-  toggle("t-bone", (on) => { meshes[0].visible = on; });
-  toggle("t-implant", (on) => { if (meshes[1]) meshes[1].visible = on; });
-  toggle("t-marks", (on) => { showMarks = on; });
-  toggle("t-ghost", (on) => { meshes[0].alpha = on ? 0.34 : 1; });
-
-  document.getElementById("t-reset").addEventListener("click", () => {
-    Object.assign(cam, HOME);
-    activeCheck = null;
-    for (const el of document.querySelectorAll(".check")) el.removeAttribute("aria-current");
-    draw();
-  });
-
-  // ---- check rail ----------------------------------------------------------
-
-  const rail = document.getElementById("checks");
-  // Fixed en-US formatting on purpose: a comma-decimal locale turns 8.596 into
-  // "8,596", which beside a "1,5 mm" limit reads as three thousand times over.
-  const NUM = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
-  const fmt = (v) => (v === null || v === undefined ? "—" : NUM.format(+v));
-
-  for (const c of DATA.checks) {
-    const el = document.createElement(c.location ? "button" : "div");
-    el.className = `check s-${c.status}` + (c.location ? " locatable" : "");
-    if (c.location) el.type = "button";
-
-    const numbers = c.value === null || c.value === undefined
-      ? `<span class="num">${c.status}</span>`
-      : `<span class="num"><b>${fmt(c.value)}</b> / ${fmt(c.limit)} ${c.unit || ""}</span>`;
-
-    el.innerHTML =
-      `<span class="stripe"></span>` +
-      `<span class="check-body">` +
-      `<span class="check-top"><span class="check-id">${c.id}</span>${numbers}</span>` +
-      (c.message ? `<p class="check-msg">${c.message}</p>` : "") +
-      (c.location ? `<div class="loc">at ${c.location.map((n) => (+n).toFixed(1)).join(", ")} mm</div>` : "") +
-      `</span>`;
-
-    if (c.location) {
-      el.addEventListener("click", () => {
-        for (const other of document.querySelectorAll(".check")) other.removeAttribute("aria-current");
-        el.setAttribute("aria-current", "true");
-        activeCheck = c.id;
-        // Aim at the finding: swing the camera round to face it and centre it.
-        // A point at bearing theta in the XY plane has screen depth
-        // cos(el) * sin(az + theta), so it faces the camera at az = 90 - theta.
-        // The other sign puts the camera behind the bone, looking at the far side.
-        const theta = Math.atan2(c.location[1] - centre[1], c.location[0] - centre[0]);
-        aim(90 - (theta * 180) / Math.PI, 8, c.location);
-      });
-    }
-    rail.appendChild(el);
-  }
-
-  function aim(az, el, point) {
-    const from = { ...cam };
-    const to = { az, el, zoom: Math.max(cam.zoom, 1.7) };
-    const steps = reduceMotion ? 1 : 22;
-    let i = 0;
-
-    const step = () => {
-      i++;
-      const t = i / steps;
-      const ease = 1 - Math.pow(1 - t, 3);
-      cam.az = from.az + (to.az - from.az) * ease;
-      cam.el = from.el + (to.el - from.el) * ease;
-      cam.zoom = from.zoom + (to.zoom - from.zoom) * ease;
-
-      // Keep the finding centred as the zoom changes.
-      project();
-      const p = projectPoint(point, rotation());
-      cam.tx += (canvas.clientWidth / 2 - p[0]) * ease * 0.5;
-      cam.ty += (canvas.clientHeight / 2 - p[1]) * ease * 0.5;
-
-      draw();
-      if (i < steps) requestAnimationFrame(step);
-    };
-    step();
-  }
-
-  window.addEventListener("resize", draw);
-  const themeWatcher = window.matchMedia("(prefers-color-scheme: dark)");
-  themeWatcher.addEventListener("change", draw);
-
-  draw();
+function current(){return DATA.iterations[activeIteration]||DATA.iterations[0]}function coverage(c){const b=[];if(c.PASS)b.push(`${c.PASS} PASS`);if(c.FAIL)b.push(`${c.FAIL} FAIL`);if(c.SKIP)b.push(`${c.SKIP} SKIP`);if(c.ERROR)b.push(`${c.ERROR} ERROR`);return b.join(" · ")||"No checks"}
+function render(){const it=current(),g=it.coverage.geometry,s=it.coverage.stress;$("iteration-pill").textContent=it.label;$("model-label-title").textContent=`${it.label} · validated solid`;$("geometry-number").textContent=`${g.PASS}/${g.TOTAL}`;$("geometry-detail").textContent=coverage(g);$("geometry-dot").className=`status-dot${g.FAIL||g.ERROR?" fail":""}`;$("stress-number").textContent=`${s.PASS}/${s.TOTAL}`;$("stress-detail").textContent=coverage(s);$("stress-dot").className=`status-dot${s.FAIL||s.ERROR?" fail":s.SKIP?" skip":""}`;$("engineering-status").textContent=it.geometry_converged?"Geometry converged":g.FAIL?"Shape change required":g.ERROR?"Validator needs attention":"Validation in progress";$("coverage-message").textContent=s.SKIP?`${s.SKIP} stress check${s.SKIP===1?" is":"s are"} unavailable. ${g.PASS}/${g.TOTAL} geometry checks pass.`:"Stress and geometry are shown separately; no skipped checks are hidden.";$("rationale").textContent=it.rationale||"No rationale recorded.";$("commit-sha").textContent=it.commit_sha?String(it.commit_sha).slice(0,10):"No commit";$("topology-tag").textContent=it.topology_changed?"Structural geometry change":"No topology change recorded";const link=$("session-link"),session=currentRun?.active_session?.url||it.session_url;if(session){link.href=session;link.removeAttribute("aria-disabled")}else{link.href="#";link.setAttribute("aria-disabled","true")}renderChecks();renderFiles();renderTimeline();renderFinding();$("review-actions").hidden=!(it.geometry_converged&&(!currentRun||currentRun.status==="awaiting_review")&&activeIteration===DATA.iterations.length-1);draw()}
+function renderFinding(){const f=(current().checks||[]).find(c=>c.status==="FAIL"||c.status==="ERROR");if(!f){$("finding-card").hidden=true;return}$("finding-card").hidden=false;$("finding-name").textContent=f.id;$("finding-message").textContent=f.message||"This check prevents geometry convergence.";$("finding-value").textContent=f.value==null?f.status:`${fmt(f.value)} ${f.unit||""}`;$("finding-limit").textContent=f.limit==null?"No numeric limit":`limit ${fmt(f.limit)} ${f.unit||""}`;$("finding-card").onclick=()=>locate(f)}
+function renderChecks(){const checks=(current().checks||[]).filter(c=>currentFilter==="all"||(currentFilter==="stress"?STRESS_IDS.has(c.id):!STRESS_IDS.has(c.id))),root=$("checks");root.innerHTML="";for(const c of checks){const el=document.createElement(c.location?"button":"div");el.className=`check s-${c.status}${c.location?" locatable":""}`;if(c.location)el.type="button";const nums=c.value==null?`<span class="check-num mono">${esc(c.status)}</span>`:`<span class="check-num mono"><b>${fmt(c.value)}</b> / ${fmt(c.limit)} ${esc(c.unit||"")}</span>`;el.innerHTML=`<span class="check-state"></span><span><span class="check-top"><span class="check-id mono">${esc(c.id)}</span>${nums}</span>${c.message?`<p class="check-msg">${esc(c.message)}</p>`:""}${c.location?`<div class="check-loc mono">Locate at ${c.location.map(v=>(+v).toFixed(1)).join(", ")} mm</div>`:""}</span>`;if(c.location)el.onclick=()=>locate(c);root.appendChild(el)}}
+function locate(c){activeCheck=c.id;if(!c.location){draw();return}const theta=Math.atan2(c.location[1]-centre[1],c.location[0]-centre[0]),from={...cam},to={az:90-theta*180/Math.PI,el:8,zoom:Math.max(cam.zoom,1.7)},steps=reduced?1:20;let i=0;const step=()=>{i++;const t=1-Math.pow(1-i/steps,3);cam.az=from.az+(to.az-from.az)*t;cam.el=from.el+(to.el-from.el)*t;cam.zoom=from.zoom+(to.zoom-from.zoom)*t;project();const p=point(c.location,rotation());cam.tx+=(canvas.clientWidth/2-p[0])*t*.45;cam.ty+=(canvas.clientHeight/2-p[1])*t*.45;draw();if(i<steps)requestAnimationFrame(step)};step()}
+function renderFiles(){const a=current().artifacts||{};$("artifact-list").innerHTML=[["report.json","Structured validation",a.report],["implant.stl","Measured mesh",a.stl],["implant.step","Manufacturing solid",a.step]].map(([n,l,p])=>`<a class="artifact-link" href="${esc(p||"#")}" download><strong class="mono">${n}</strong><span>${l} ↓</span></a>`).join("")}
+function renderTimeline(){const root=$("timeline-track");root.innerHTML="";DATA.iterations.forEach((it,index)=>{const n=document.createElement("button"),g=it.coverage.geometry;n.className="timeline-node";n.setAttribute("aria-current",String(index===activeIteration));n.innerHTML=`<span class="node-dot">${index}</span><span class="node-copy"><strong>${esc(it.label)}</strong><span>${g.PASS}/${g.TOTAL} geometry</span></span>`;n.onclick=()=>{activeIteration=index;activeCheck=null;render()};root.appendChild(n)})}
+document.querySelectorAll(".filter-button").forEach(b=>b.onclick=()=>{currentFilter=b.dataset.filter;document.querySelectorAll(".filter-button").forEach(o=>o.setAttribute("aria-pressed",String(o===b)));renderChecks()});document.querySelectorAll(".rail-tab").forEach(tab=>tab.onclick=()=>{document.querySelectorAll(".rail-tab").forEach(o=>o.setAttribute("aria-selected",String(o===tab)));document.querySelectorAll(".tab-panel").forEach(p=>p.hidden=p.id!==tab.getAttribute("aria-controls"))});
+$("approve-button").onclick=()=>$("approve-dialog").showModal();$("revision-button").onclick=()=>$("revision-dialog").showModal();$("approve-form").onsubmit=async e=>{e.preventDefault();if(e.submitter?.value==="cancel"){$("approve-dialog").close();return}if(!currentRun){toast("Open this page through the AutoImplants server to record approval.");return}try{const result=await api(`/api/runs/${currentRun.run_id}/reviews`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({decision:"approved_prototype",reviewer:$("reviewer-name").value.trim(),iteration:current().number,stress_ack:$("stress-ack").checked})});$("approve-dialog").close();applyRun(result);toast("Prototype approval recorded against this commit and artifact set.")}catch(error){toast(error.message)}};$("place-pin").onclick=()=>{$("revision-dialog").close();pinMode=true;canvas.classList.add("pin-mode");toast("Select a point on the bone to attach the feedback.")};$("revision-form").onsubmit=async e=>{e.preventDefault();if(e.submitter?.value==="cancel"){$("revision-dialog").close();return}if(!currentRun){toast("Open this page through the AutoImplants server to request a revision.");return}try{const result=await api(`/api/runs/${currentRun.run_id}/reviews`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({decision:"revision_requested",reviewer:$("revision-reviewer").value.trim(),iteration:current().number,feedback:$("revision-feedback").value.trim(),pin:feedbackPin,cost_ack:$("revision-cost-ack").checked})});$("revision-dialog").close();feedbackPin=null;applyRun(result);toast("Revision recorded and queued with a fresh 15-ACU cap.")}catch(error){toast(error.message)}};$("resume-button").onclick=async()=>{if(!currentRun)return;try{applyRun(await api(`/api/runs/${currentRun.run_id}/resume`,{method:"POST"}));toast("Rechecking the existing Devin session.")}catch(error){toast(error.message)}};
+rebuild();render();addEventListener("resize",draw);checkPreflight();restoreRun();window.AUTOIMPLANTS_UI={openWorkbench,appendIteration(it){DATA.iterations.push(it);activeIteration=DATA.iterations.length-1;render()},setSessionUrl(url){current().session_url=url;render()}};
 })();
 </script>
+</body>
+</html>
