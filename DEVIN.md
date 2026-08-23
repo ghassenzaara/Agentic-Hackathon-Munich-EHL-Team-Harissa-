@@ -38,6 +38,24 @@ you do not have to guess where the problem is.
 
 Run it after every change. Never commit a design you have not validated.
 
+## What the stress checks are telling you
+
+The stress validator is a reduced-order beam surrogate, and it measures the
+section properties off your exported STL. It cannot be talked into a better
+number; it can only be given a better section.
+
+- `stress_max_bending` — peak combined bending + axial stress. The moment peaks
+  at mid-footprint and falls to zero at the outermost screws, so material added
+  near the ends does almost nothing and material added at mid-span does almost
+  everything. Stress scales with `1/S`, and `S` scales with thickness squared.
+- `stress_hole_N` — the net section at screw `N`, multiplied by a stress
+  concentration factor: 1.40 for a round hole, 1.10 for an axial slot. The
+  validator decides which by measuring the shape of the void, so the slot has to
+  be real geometry.
+- `screw_pullout_min` — thread purchase, reduced by standoff. A gap under the
+  plate is screw length that never reaches bone, so this check follows
+  `bone_conformance_gap` down.
+
 ## What you may change
 
 | | |
