@@ -32,11 +32,13 @@ from .validators.stress import CHECK_IDS as STRESS_CHECK_IDS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = Path(__file__).resolve().parent / "viewer_template.html"
+LANDING_BONE_ASSET = Path(__file__).resolve().parent / "assets" / "human_femur_hero.stl"
 
 # Display budgets. Well below what the validators measure on -- this is for
 # looking at, and the sort in the renderer is per-frame.
 BONE_FACE_BUDGET = 4000
 IMPLANT_FACE_BUDGET = 6000
+LANDING_BONE_FACE_BUDGET = 10000
 
 # Rounding on exported coordinates. 0.01 mm is far finer than any threshold in
 # the case and roughly halves the payload against full float repr.
@@ -44,6 +46,7 @@ COORD_DECIMALS = 2
 
 BONE_COLOR = "#d8cfc0"
 IMPLANT_COLOR = "#8fa3b0"
+LANDING_BONE_COLOR = "#e7e0d4"
 
 
 def _status_counts(checks: list[dict]) -> dict[str, int]:
@@ -185,6 +188,12 @@ def build_page(
         "case": _case_payload(case),
         "verdict": verdict,
         "meshes": meshes,
+        "landing_mesh": _mesh_payload(
+            LANDING_BONE_ASSET,
+            "landing-femur",
+            LANDING_BONE_COLOR,
+            LANDING_BONE_FACE_BUDGET,
+        ),
         "checks": checks,
         "coverage": iteration["coverage"],
         "iterations": [iteration],

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from autoimplants.contracts import FAIL, PASS, SKIP, Check, Report
 from autoimplants import viewer
 from autoimplants.validators.stress import CHECK_IDS
@@ -89,8 +91,11 @@ def test_landing_story_precedes_intake_and_preserves_workflow_hooks(monkeypatch)
     )
 
     assert 'id="landing-story" data-active-beat="0"' in html
-    assert 'class="story-stage" aria-hidden="true"' in html
-    assert '<canvas id="landing-view"></canvas>' in html
+    assert '<canvas id="landing-view" aria-hidden="true"></canvas>' in html
+    assert '"landing_mesh":{"name":"landing-femur"' in html
+    assert "DATA.landing_mesh||DATA.meshes[0]" in html
+    assert "commons.wikimedia.org/wiki/File:Human_femur.stl" in html
+    assert "CC BY 4.0" in html
     assert html.count('class="story-beat" data-beat=') == 3
     assert html.index('id="landing-story"') < html.index('id="case-intake"')
     assert 'href="#case-intake">Start case</a>' in html
@@ -105,3 +110,14 @@ def test_landing_story_precedes_intake_and_preserves_workflow_hooks(monkeypatch)
     assert 'matchMedia("(prefers-reduced-motion: reduce)")' in html
     assert "3D preview unavailable" in html
     assert "21/21" not in html
+
+
+def test_landing_femur_asset_is_the_reviewed_web_derivative():
+    asset = viewer.LANDING_BONE_ASSET
+
+    assert asset.exists()
+    assert asset.stat().st_size == 500_084
+    assert (
+        hashlib.sha256(asset.read_bytes()).hexdigest()
+        == "a4bd5fc78eed691c007022054b0d2c102233839faebb3c3ae52c167dce90bc88"
+    )
