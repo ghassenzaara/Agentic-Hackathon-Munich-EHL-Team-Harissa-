@@ -30,7 +30,7 @@ import cadquery as cq
 import numpy as np
 
 from . import case_io
-from .bone import max_surface_x
+from .bone import surface_grid
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,11 +39,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # generator and its examiner are looking at the same geometry.
 N_SEAT_LANES = 5
 
+# Cross-sections lofted along the shaft, and points sampled across the width in
+# each one. These set how closely the bone-facing surface tracks the cortex.
+# Chordal error between samples is what eats into the mount clearance: 180 mm
+# over 40 spans on a ~910 mm bow radius is ~0.003 mm, and 16 mm over 12 spans on
+# a ~13 mm shaft radius ~0.02 mm -- both well inside the 0.4 mm clearance.
+N_CONTOUR_STATIONS = 41
+N_SECTION_POINTS = 13
+
 # Flip these to True as you implement the corresponding geometry below.
 THICKNESS_PROFILE_IMPLEMENTED = False
 RIBS_IMPLEMENTED = False
 HOLE_SLOTS_IMPLEMENTED = False
-CONTOUR_SPLINE_IMPLEMENTED = False
+CONTOUR_SPLINE_IMPLEMENTED = True
 
 
 def _screws() -> list[dict]:
@@ -99,12 +107,58 @@ def _guard_unimplemented(params: dict) -> None:
             )
 
 
+def _contour_offsets(contour_spline: list, s: np.ndarray) -> np.ndarray:
+    """Extra stand-off in mm at each normalised station ``s``.
+
+    ``contour_spline`` is ``[[s, offset_mm], ...]``: a correction layered on top
+    of the bone-fitted contour, linearly interpolated between control points and
+    held flat outside them. Empty -- the default -- means the plate follows the
+    fitted cortex exactly, which is the case that matters; the handle exists so
+    that asking for extra soft-tissue relief over one segment does not mean
+    writing a second generator.
+    """
+    if not contour_spline:
+        return np.zeros_like(s)
+    pts = np.array(sorted([float(a), float(b)] for a, b in contour_spline), dtype=float)
+    return np.interp(s, pts[:, 0], pts[:, 1])
+
+
+def _fill_missing(xs: np.ndarray) -> np.ndarray:
+    """Replace NaN bone samples (rays that missed) by interpolating along Z.
+
+    A miss means that lane of the footprint has run off the cortex. Carrying the
+    neighbouring readings across keeps the loft closed and leaves the verdict to
+    the gap check, rather than crashing the build on a NaN vertex.
+    """
+    out = np.asarray(xs, dtype=float).copy()
+    if not np.isfinite(out).any():
+        raise ValueError(
+            "bone surface could not be sampled anywhere under the plate footprint; "
+            "the plan places the plate off the shaft"
+        )
+    idx = np.arange(out.shape[0], dtype=float)
+    row_fallback = np.nanmax(np.where(np.isfinite(out), out, np.nan), axis=1)
+    for j in range(out.shape[1]):
+        col = out[:, j]
+        ok = np.isfinite(col)
+        if ok.all():
+            continue
+        if not ok.any():
+            col = row_fallback
+            ok = np.isfinite(col)
+        out[:, j] = np.interp(idx, idx[ok], col[ok])
+    return out
+
+
 def build_implant(params: dict) -> cq.Workplane:
     """Build the implant solid from params. FROZEN SIGNATURE.
 
-    Baseline: flat straight plate, constant thickness, six round screw holes,
-    standing clear of the most protruding point of the bone so that it does not
-    intersect the shaft.
+    Contoured plate: the bone-facing surface is a doubly curved sheet fitted to
+    the lateral cortex -- bent along Z to follow the anterior bow and troughed
+    across Y to follow the shaft's round section -- standing off it by
+    ``mount_clearance_mm``. The outer face is that same sheet pushed out by the
+    wall thickness, so the section is constant and the plate hugs the bone
+    everywhere instead of only at the apex of the bow.
     """
     _guard_unimplemented(params)
 
@@ -135,29 +189,50 @@ def build_implant(params: dict) -> cq.Workplane:
             f"screw the plate does not reach is a screw that fixes nothing."
         )
 
-    # A flat plate has to clear the most protruding point of the bow, otherwise it
-    # cuts into the shaft. This is exactly why it then gapes at both ends. The
-    # clearance is held at the apex, so the gap only grows from there -- which is
-    # the whole problem a contoured plate solves.
+    # Seat the plate on the cortex itself instead of on the single most
+    # protruding point of it. A flat plate has to clear the apex of the bow, and
+    # that is precisely why it gapes at both ends; a surface fitted to the bone
+    # holds the same small clearance the whole way along.
     #
-    # Seating is measured along the lanes the plate actually covers, not the y=0
-    # centreline alone: on irregular cortex the most protruding point under the
-    # plate is often not on its midline, and seating to the midline would bury
-    # the plate edge in bone.
-    seat_lanes = np.linspace(y_center - width / 2.0, y_center + width / 2.0, N_SEAT_LANES)
-    mount_x = max_surface_x(z0, z1, ys=seat_lanes) + clearance
+    # The fit is two-dimensional. Following only the y=0 centreline would leave
+    # the plate edges standing off a shaft that is round in section -- about
+    # 1.5 mm at 6 mm off the midline on a 13 mm radius, the entire gap budget
+    # spent on transverse curvature alone.
+    ys = np.linspace(y_center - width / 2.0, y_center + width / 2.0, N_SECTION_POINTS)
+    zs, _, bone_xs = surface_grid(z0, z1, ys=ys, n=N_CONTOUR_STATIONS)
+    bone_xs = _fill_missing(bone_xs)
 
-    plate = (
-        cq.Workplane("YZ")
-        .workplane(offset=mount_x)
-        .moveTo(y_center, z_center)
-        .rect(width, length)
-        .extrude(thickness)
-    )
+    s = (zs - z0) / max(length, 1e-9)
+    offsets = _contour_offsets(params.get("contour_spline") or [], s)
+    inner_x = bone_xs + clearance + offsets[:, None]
 
-    # Round the four long corners. Edges parallel to X are the plan-view corners.
+    # One planar section per station: the bone-facing edge traced out along +Y,
+    # the outer face traced back along -Y. Ruled between stations, so the solid
+    # is exactly the sampled sheet and no spline overshoot between samples can
+    # push a face into the cortex.
+    sections = []
+    for k in range(len(zs)):
+        z = float(zs[k])
+        pts = [
+            cq.Vector(float(inner_x[k, j]), float(ys[j]), z) for j in range(len(ys))
+        ]
+        pts += [
+            cq.Vector(float(inner_x[k, j]) + thickness, float(ys[j]), z)
+            for j in reversed(range(len(ys)))
+        ]
+        sections.append(cq.Wire.makePolygon(pts, close=True))
+
+    plate = cq.Workplane(obj=cq.Solid.makeLoft(sections, ruled=True))
+
+    # Break the two long edges. On a curved solid they run along the shaft, so
+    # they are picked by direction rather than by the flat plate's "|X".
     if fillet > 0:
-        plate = plate.edges("|X").fillet(fillet)
+        try:
+            plate = plate.edges("|Z").fillet(fillet)
+        except Exception:  # a fillet is cosmetic; never lose the part over one
+            pass
+
+    mount_x = float(np.nanmax(inner_x))
 
     # Screw bores, each along its own planned trajectory. The cutter starts well
     # outside the plate and is long enough to leave it again whatever the angle,
