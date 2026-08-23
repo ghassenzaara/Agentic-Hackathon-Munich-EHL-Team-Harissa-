@@ -1,0 +1,18 @@
+hey I am working on this project here is the repo on my own branch now, here is inofs reserasch form my teammates , I got two paragraphs and two Images and two images ( pipelines ) create a claude.md file after you understand and process the topic :
+
+par1:
+Stage 1 — the scan becomes a shape. A CT scan is a stack of grayscale slices. Bone is much brighter than everything around it, so software (TotalSegmentator) picks out the bone pixels and turns them into a 3D surface. You then throw most of it away: you only keep the section of the tibia where the plate will sit. Smaller mesh, faster everything downstream.
+
+Stage 2 — Devin writes a program that draws the plate. This is the key move. Devin doesn't sculpt anything by hand. It writes Python that, when run, produces a plate: "follow this curve along the bone, sweep this cross-section along it, put six screw holes at these positions, taper the thickness from 3.5 mm to 2 mm." The plate is the output of the code. Change a line of code, get a different plate.
+
+Stage 3 — the verifier grades it. This is where the loop gets its teeth. The verifier takes the plate, chops it into a few hundred thousand tiny tetrahedra, applies the loads a real tibia sees when someone walks, and computes the stress in every one of them. It then checks a list: is the peak stress safely below the yield limit? Is the plate too stiff? Too heavy? Does it collide with the bone? Do the screws exit where they shouldn't? Can a printer actually make it? It returns numbers, not opinions.
+
+Stage 4 — the verdict comes back as instructions, not just a score. "Failed: peak stress 940 MPa at the third screw hole, safety factor 1.4, need 2.5." Devin now edits the code and runs again. Nobody is watching. This repeats until everything passes.
+
+Stage 5 — out come real files. The 3D model, the printer instructions, and a report showing the simulated standard test results.
+
+
+
+
+
+par2:

@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0PBEJBETRFM0NTCHQ57AFYQ",
+  "session_id": "4b2ca340-6b53-4283-9174-04da362cbb1b",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-23T03:43:25.6157857Z",
+  "branch": "Yacine",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "autoimplants/server.py",
+    "autoimplants/viewer_template.html",
+    "tests/test_server.py"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "fb208a1af8f9",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-23T03:43:25.5849485Z",
+    "agent_lines": 337,
+    "agent_removed": 36,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 337,
+    "total_lines_changed": 373,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
