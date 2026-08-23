@@ -74,11 +74,24 @@ Start the live Devin workflow:
 # open http://127.0.0.1:8765
 ```
 
-The local server verifies the bundled demo femur, shows the maximum ACU spend,
-runs one isolated Git worktree/branch per case, and streams only independently
-validated iterations into the 3D viewer. It executes queued cases serially and
-stores recovery state under `.autoimplants-runtime/`. The browser never receives
-the Devin API key.
+The local server takes the scan plus the surgeon's plan, shows the maximum ACU
+spend, and streams only independently validated iterations into the 3D viewer.
+It executes queued cases serially and stores recovery state under
+`.autoimplants-runtime/`. The browser never receives the Devin API key.
+
+No Git is involved in a design iteration. Each case gets its own workspace
+directory copied from this checkout, and the design agent is handed the current
+contents of `autoimplants/generator.py`, `params.py` and `export.py` plus one
+job URL (`/api/patch/{token}`). It POSTs back whole files — never diffs, never a
+commit — the server writes them into that workspace, runs the validators against
+the patient's own case, and serves the resulting report back on the same URL for
+the next iteration. Any other path is refused before it reaches the workspace,
+so validators, thresholds, anatomy and the surgical plan cannot be edited to
+manufacture a pass.
+
+A cloud sandbox cannot reach a loopback URL; set `AUTOIMPLANTS_PUBLIC_URL` to a
+reachable base URL for the live exchange (preflight says so when it is still
+local), and the session's structured output is accepted as a fallback.
 
 For a one-session integration check, open
 `http://127.0.0.1:8765/?max_iterations=1`; the intake will disclose and enforce a

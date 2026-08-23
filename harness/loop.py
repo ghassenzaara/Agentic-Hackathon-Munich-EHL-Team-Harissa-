@@ -20,6 +20,7 @@ from .guard import check_range, is_ancestor
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROMPT_TEMPLATE = REPO_ROOT / "prompts" / "fix_iteration.md"
+PATCH_PROMPT_TEMPLATE = REPO_ROOT / "prompts" / "patch_iteration.md"
 
 ITERATION_OUTPUT_SCHEMA = {
     "type": "object",
@@ -40,6 +41,36 @@ ITERATION_OUTPUT_SCHEMA = {
         },
     },
     "required": ["commit_sha", "files_changed", "rationale", "topology_changed"],
+}
+
+# Posted-file mode: nothing is committed, so the result is the submission itself.
+# `files` is a fallback for a sandbox that could not reach the job endpoint at all;
+# normally the design has already arrived over HTTP by the time this is read.
+PATCH_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "submitted": {
+            "type": "boolean",
+            "description": "true if you POSTed at least one design to the job endpoint",
+        },
+        "files": {
+            "type": "object",
+            "description": "path -> complete new file contents; send this only if the "
+                           "job endpoint was unreachable, otherwise leave it out",
+        },
+        "rationale": {"type": "string", "description": "why this change addresses the failure"},
+        "topology_changed": {
+            "type": "boolean",
+            "description": "true if you added or removed geometry (rib, slot, contour, "
+                           "variable thickness); false if you only changed scalar values",
+        },
+        "checks_fixed": {"type": "array", "items": {"type": "string"}},
+        "infeasible": {
+            "type": "boolean",
+            "description": "true only if you believe no legal design can pass",
+        },
+    },
+    "required": ["rationale", "topology_changed"],
 }
 
 
@@ -67,6 +98,37 @@ def render_prompt(
         "{{REPORT}}": report.summary(),
         "{{PARAMS}}": json.dumps(report.params, indent=2),
         "{{HISTORY}}": "\n".join(history) if history else "(nothing yet -- first iteration)",
+    }.items():
+        text = text.replace(token, value)
+    if feedback:
+        text += (
+            "\n\n## Surgeon revision requirement\n\n"
+            "Treat this as an immutable additional requirement; do not change locked inputs.\n\n"
+            f"{feedback.strip()}\n"
+        )
+    return text
+
+
+def render_patch_prompt(
+    iteration: int,
+    report: Report,
+    history: list[str],
+    job_url: str,
+    sources: list[str],
+    case_id: str,
+    feedback: str = "",
+) -> str:
+    """The repo-resident prompt for the integrated (no-Git) design agent."""
+    text = PATCH_PROMPT_TEMPLATE.read_text(encoding="utf-8")
+    text = text.split("---", 2)[-1].lstrip()
+    for token, value in {
+        "{{ITERATION}}": str(iteration),
+        "{{REPORT}}": report.summary(),
+        "{{PARAMS}}": json.dumps(report.params, indent=2),
+        "{{HISTORY}}": "\n".join(history) if history else "(nothing yet -- first iteration)",
+        "{{JOB_URL}}": job_url,
+        "{{SOURCES}}": "\n".join(f"- `{path}`" for path in sources),
+        "{{CASE}}": case_id,
     }.items():
         text = text.replace(token, value)
     if feedback:
