@@ -39,7 +39,14 @@ DEFAULT_PARAMS: dict = {
     "hole_countersink_mm": 0.0,
 
     # --- stress relief / cosmetics -------------------------------------------
-    "fillet_mm": 1.0,
+    # Zero, deliberately. On the contoured plate the edge relief is drawn into the
+    # lofted section (see _section_wire) rather than applied as a CadQuery fillet,
+    # and it thins the x chord at the plate edge -- which is exactly the chord
+    # check_min_wall measures, taking the minimum. A 1 mm bevel reports a wall far
+    # under the 2.5 mm floor, and it removes material from the fibre furthest from
+    # the neutral axis. A manufactured part is still deburred; that belongs in the
+    # CAM step, not in the solid the validator measures walls on.
+    "fillet_mm": 0.0,
     "edge_chamfer_mm": 0.0,
 }
 
