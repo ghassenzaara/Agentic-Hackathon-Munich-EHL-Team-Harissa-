@@ -385,6 +385,22 @@ def test_stage_shows_a_wait_state_while_a_turn_is_in_flight(monkeypatch):
     assert 'Only independently validated geometry appears here.' not in html
 
 
+def test_a_dead_event_stream_cannot_leave_the_stage_spinning(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page(
+        {"case_id": "CASE-13"}, None, _report(geometry_fail=True), server_mode=True
+    )
+
+    # The run can finish while the stream is dead, and the page would then hold a
+    # wait state for a run that already produced its result.
+    assert "const SNAPSHOT_TIMEOUT=15000" in html
+    assert "runPoll=setInterval(" in html
+    assert "const record=await api(`/api/runs/${connectedRunId}`);lastSnapshot=Date.now();applyRun(record)" in html
+    assert 'if(!working){stopRunPoll();if(eventSource){eventSource.close();eventSource=null}}' in html
+    assert 'streamStale?"reconnecting to the run record"' in html
+
+
 # -- the browser-side plan gate must agree with the server ---------------------
 
 def _plan_gate_source(html: str) -> str:
