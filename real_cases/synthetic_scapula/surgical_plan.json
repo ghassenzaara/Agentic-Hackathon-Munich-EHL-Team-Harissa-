@@ -176,6 +176,20 @@
    "max": 4.5
   }
  },
+ "load_cases": [
+  {
+   "id": "abduction_traction",
+   "type": "axial",
+   "force_N": 300.0,
+   "basis": "muscle traction across the blade during protected abduction. A scapula is loaded by muscle, not by bodyweight, and the arm is not lifted freely while a reconstruction consolidates, so this is well below reported peak glenohumeral joint force."
+  },
+  {
+   "id": "blade_bending",
+   "type": "bending",
+   "moment_Nm": 6.0,
+   "basis": "the same traction taken as bending across the resection, which the device bridges: no load sharing with bone across the gap."
+  }
+ ],
  "thresholds": {
   "min_wall_mm": 1.5,
   "max_bone_gap_mm": 1.5,
@@ -183,7 +197,9 @@
   "max_implant_mass_g": 45.0,
   "max_keepout_encroach_mm": 0.0,
   "require_watertight": true,
-  "require_all_screws": 7
+  "require_all_screws": 7,
+  "max_stress_MPa": 350.0,
+  "max_deflection_mm": 1.5
  },
  "iteration_budget": 3
 }

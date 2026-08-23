@@ -318,3 +318,60 @@ def test_an_overloaded_case_fails_so_the_iteration_loop_has_something_to_fix(
     assert peak.value > 1.0 and peak.limit == 1.0
     assert peak.location is not None
     assert (tmp_path / fea_validator.FIELD_NAME).exists()
+
+
+def test_a_bore_wider_than_its_screw_still_resolves_to_nodes():
+    """The generator's hole diameter, not the screw's, is what the mesh shows.
+
+    The patch family clears a 4.5 mm hole for a 2.4 mm screw; capturing at a
+    multiple of the screw radius found nothing there, and a part with no captured
+    bore is reported as unrestrained instead of solved.
+    """
+    screw = {
+        "entry_mm": [0.0, 0.0, 0.0],
+        "direction": [0.0, 0.0, 1.0],
+        "diameter_mm": 2.4,
+        "length_mm": 12.0,
+    }
+    # A ring of nodes at the wall of the 4.5 mm hole actually drilled, plus one out
+    # in the middle of the wall that belongs to no bore.
+    angles = np.linspace(0.0, 2.0 * np.pi, 12, endpoint=False)
+    wall = np.column_stack(
+        [2.25 * np.cos(angles), 2.25 * np.sin(angles), np.full(len(angles), 3.0)]
+    )
+    nodes = np.vstack([wall, [[20.0, 0.0, 3.0]]])
+
+    captured = fea.bore_nodes(nodes, screw)
+    assert set(captured.tolist()) == set(range(len(wall)))
+
+
+def test_a_bore_the_axis_misses_captures_nothing():
+    """A measured radius is only trusted so far: past that the axis missed."""
+    screw = {
+        "entry_mm": [0.0, 0.0, 0.0],
+        "direction": [0.0, 0.0, 1.0],
+        "diameter_mm": 2.4,
+        "length_mm": 12.0,
+    }
+    assert not len(fea.bore_nodes(np.array([[40.0, 0.0, 3.0]]), screw))
+
+
+def test_a_patch_standing_off_the_bone_is_restrained_at_its_bores():
+    """Every bore of a patch sits behind its screw's entry, not around it."""
+    screws = [
+        {
+            "entry_mm": [x, 0.0, 0.0],
+            "direction": [0.0, 0.0, -1.0],  # driven inwards, from outside
+            "diameter_mm": 2.4,
+            "length_mm": 6.0,
+        }
+        for x in (0.0, 10.0, 40.0, 50.0)
+    ]
+    # The device is a shell 4 mm off the bone: its material is at z = +4, which the
+    # screw axis reaches only in the direction it came from.
+    nodes = np.array([[x + 1.5, 0.0, 4.0] for x in (0.0, 10.0, 40.0, 50.0)])
+
+    fixed, loaded, _, lever = fea.load_path(nodes, screws)
+    assert set(fixed.tolist()) == {0, 1}
+    assert set(loaded.tolist()) == {2, 3}
+    assert lever == pytest.approx(40.0)

@@ -132,8 +132,34 @@ def case(center: np.ndarray) -> dict:
             "max_standoff_mm": 5.0,
             "thickness_bounds_mm": {"min": 1.5, "max": 4.0},
         },
+        "load_cases": [
+            {
+                "id": "vault_point_contact",
+                "type": "axial",
+                "force_N": 50.0,
+                "basis": (
+                    "incidental contact on the reconstructed vault -- a knock or a "
+                    "firm press, not weight bearing. A cranioplasty carries no body "
+                    "load, so this is a serviceability load, and it is the order of "
+                    "magnitude cranial implants are bench-loaded at, not a "
+                    "physiological peak."
+                ),
+            },
+            {
+                "id": "defect_span_bending",
+                "type": "bending",
+                "moment_Nm": 1.5,
+                "basis": (
+                    "the same contact taken as bending across the craniectomy: the "
+                    "device spans the defect, so the load path is through its own "
+                    "section rather than into bone underneath it."
+                ),
+            },
+        ],
         "thresholds": {
             "min_wall_mm": 1.5,
+            "max_stress_MPa": 350.0,
+            "max_deflection_mm": 0.5,
             "max_bone_gap_mm": 1.5,
             "min_bone_gap_mm": 0.05,
             "max_implant_mass_g": 40.0,
@@ -148,10 +174,16 @@ def case(center: np.ndarray) -> dict:
                 "femoral plate."
             ),
             "stress": (
-                "No load case is declared. A cranioplasty is not load-bearing in the "
-                "way a femoral plate is, and inventing a load to make a stress number "
-                "appear would be worse than reporting none: the stress validator "
-                "reports SKIP for this case."
+                "The declared loads are serviceability loads, not physiological "
+                "ones: a cranioplasty is not load-bearing the way a femoral plate "
+                "is. They are authored so the case gets a real solved field instead "
+                "of a SKIP, and the FEA report is indicative -- linear static, no "
+                "contact, no bone compliance, no fatigue."
+            ),
+            "max_deflection_mm": (
+                "0.5 mm under the contact load: the device sits over dura, so "
+                "visible or palpable deflection is a clinical objection even while "
+                "the section is far from yield."
             ),
         },
         "defect": {

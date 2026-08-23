@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
+from pathlib import Path
 
+import pytest
 import trimesh
 
 from autoimplants.contracts import FAIL, PASS, SKIP, Check, Report
 from autoimplants import viewer
 from autoimplants.validators.stress import CHECK_IDS
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _patch_mesh_inputs(monkeypatch):
@@ -233,6 +239,7 @@ def test_post_scroll_workspace_uses_local_dimension_design_system(monkeypatch):
     assert 'color:m.name.includes("implant")?"#c8ccd2":m.color' in html
     assert viewer.IMPLANT_COLOR == "#c8ccd2"
     assert 'REQUIRED_PLAN_FIELDS=["case_id","bone","side","approach"' in html
+    assert 'PLATE_ONLY_PLAN_FIELDS=["footprint_z_mm"]' in html
     assert "internal generated case manifest, not an uploadable surgical plan" in html
     assert 'showAwaitingFirstDesign(run)' in html
     assert 'className="run-stop-state"' in html
@@ -376,3 +383,68 @@ def test_stage_shows_a_wait_state_while_a_turn_is_in_flight(monkeypatch):
     assert '.workbench .stage-busy{position:absolute;top:14px;right:14px' in html
     assert '.workbench .stage-card.busy .model-label{opacity:0;pointer-events:none}' in html
     assert 'Only independently validated geometry appears here.' not in html
+
+
+# -- the browser-side plan gate must agree with the server ---------------------
+
+def _plan_gate_source(html: str) -> str:
+    """The intake's plan-validation functions, lifted out of the page.
+
+    Extracted rather than reimplemented: a Python copy of the rule would pass
+    while the page shipped to the browser still rejected the plan, which is the
+    exact bug this covers.
+    """
+    start = html.index("const REQUIRED_PLAN_FIELDS=")
+    end = html.index('$("plan-file").onchange', start)
+    return html[start:end]
+
+
+@pytest.mark.parametrize(
+    "fixture, family",
+    [("synthetic_ct", "plate"),
+     ("synthetic_patch", "conformal_patch"),
+     ("synthetic_scapula", "conformal_patch")],
+)
+def test_intake_accepts_every_committed_plan(tmp_path, fixture, family):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is needed to execute the page's own plan gate")
+
+    plan_path = REPO_ROOT / "real_cases" / fixture / "surgical_plan.json"
+    script = tmp_path / "gate.mjs"
+    script.write_text(
+        _plan_gate_source(viewer.TEMPLATE.read_text("utf-8"))
+        + "const plan=JSON.parse(process.argv[2]);"
+        + "console.log(JSON.stringify({family:planFamily(plan),problems:planProblems(plan)}));",
+        encoding="utf-8",
+    )
+    out = subprocess.run(
+        [node, str(script), plan_path.read_text("utf-8")],
+        capture_output=True, text=True, check=True,
+    )
+    verdict = json.loads(out.stdout)
+
+    assert verdict["family"] == family
+    assert verdict["problems"] == [], verdict["problems"]
+
+
+def test_intake_still_demands_a_footprint_from_a_plate_plan(tmp_path):
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is needed to execute the page's own plan gate")
+
+    plan = json.loads(
+        (REPO_ROOT / "real_cases" / "synthetic_ct" / "surgical_plan.json").read_text("utf-8")
+    )
+    plan.pop("footprint_z_mm")
+    script = tmp_path / "gate.mjs"
+    script.write_text(
+        _plan_gate_source(viewer.TEMPLATE.read_text("utf-8"))
+        + "console.log(JSON.stringify(planProblems(JSON.parse(process.argv[2]))));",
+        encoding="utf-8",
+    )
+    out = subprocess.run(
+        [node, str(script), json.dumps(plan)], capture_output=True, text=True, check=True
+    )
+
+    assert "footprint_z_mm" in json.loads(out.stdout)[0]

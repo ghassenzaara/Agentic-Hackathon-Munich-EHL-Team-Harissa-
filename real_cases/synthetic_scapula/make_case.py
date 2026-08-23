@@ -271,8 +271,32 @@ def case() -> dict:
             "max_standoff_mm": 6.0,
             "thickness_bounds_mm": {"min": 1.5, "max": 4.5},
         },
+        "load_cases": [
+            {
+                "id": "abduction_traction",
+                "type": "axial",
+                "force_N": 300.0,
+                "basis": (
+                    "muscle traction across the blade during protected abduction. A "
+                    "scapula is loaded by muscle, not by bodyweight, and the arm is "
+                    "not lifted freely while a reconstruction consolidates, so this "
+                    "is well below reported peak glenohumeral joint force."
+                ),
+            },
+            {
+                "id": "blade_bending",
+                "type": "bending",
+                "moment_Nm": 6.0,
+                "basis": (
+                    "the same traction taken as bending across the resection, which "
+                    "the device bridges: no load sharing with bone across the gap."
+                ),
+            },
+        ],
         "thresholds": {
             "min_wall_mm": 1.5,
+            "max_stress_MPa": 350.0,
+            "max_deflection_mm": 1.5,
             "max_bone_gap_mm": 1.5,
             "min_bone_gap_mm": 0.05,
             "max_implant_mass_g": 45.0,
@@ -287,9 +311,16 @@ def case() -> dict:
                 "case."
             ),
             "stress": (
-                "No load case is declared. Scapular reconstruction loading is not "
-                "a beam problem, and no beam surrogate in this repository applies, "
-                "so the stress validator reports SKIP rather than a number."
+                "Scapular loading is not a beam problem, so the beam surrogate in "
+                "validators/stress.py does not apply here and reports SKIP; the "
+                "number comes from the field solve in validators/fea.py instead. "
+                "Indicative only: linear static, rigid screws, no bone compliance, "
+                "no fatigue."
+            ),
+            "max_deflection_mm": (
+                "1.5 mm across the bridged resection: past that the fragments move "
+                "relative to each other enough to matter for union, while the "
+                "section can still be well under yield."
             ),
         },
         "defect": {
