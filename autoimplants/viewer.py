@@ -122,7 +122,7 @@ def iteration_payload(
     defaults = {
         "number": report.iteration,
         "label": "Baseline" if report.iteration == 0 else f"Iteration {report.iteration}",
-        "rationale": "Baseline design — no autonomous geometry edit has been committed yet.",
+        "rationale": "Baseline design: no autonomous geometry edit has been committed yet.",
         "commit_sha": "",
         "session_url": "",
         "topology_changed": False,
