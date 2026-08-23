@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0PY6576Z8C57JZTCGSM6V0S",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "README.md",
+    "autoimplants/fea.py",
+    "autoimplants/patch.py",
+    "autoimplants/self_intersection.py",
+    "autoimplants/viewer_template.html",
+    "real_cases/synthetic_patch/case.json",
+    "real_cases/synthetic_patch/make_case.py",
+    "real_cases/synthetic_patch/surgical_plan.json",
+    "real_cases/synthetic_scapula/case.json",
+    "real_cases/synthetic_scapula/make_case.py",
+    "real_cases/synthetic_scapula/surgical_plan.json",
+    "tests/test_fea.py",
+    "tests/test_import_case.py",
+    "tests/test_patch_family.py",
+    "tests/test_surgical_plan.py",
+    "tests/test_viewer.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 286,
+    "cache_creation_tokens": 293587,
+    "cache_read_tokens": 19887833,
+    "output_tokens": 69418,
+    "api_call_count": 143
+  }
+}

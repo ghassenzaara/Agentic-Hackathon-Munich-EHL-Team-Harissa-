@@ -1,0 +1,133 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0PY6576Z8C57JZTCGSM6V0S",
+  "session_id": "ac5054dd-e07f-4e4a-b309-2e495344dc03",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-23T09:10:53.5805635Z",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "save_step_count": 4,
+  "files_touched": [
+    "README.md",
+    "autoimplants/fea.py",
+    "autoimplants/patch.py",
+    "autoimplants/self_intersection.py",
+    "autoimplants/viewer_template.html",
+    "real_cases/synthetic_patch/case.json",
+    "real_cases/synthetic_patch/make_case.py",
+    "real_cases/synthetic_patch/surgical_plan.json",
+    "real_cases/synthetic_scapula/case.json",
+    "real_cases/synthetic_scapula/make_case.py",
+    "real_cases/synthetic_scapula/surgical_plan.json",
+    "tests/test_fea.py",
+    "tests/test_import_case.py",
+    "tests/test_patch_family.py",
+    "tests/test_surgical_plan.py",
+    "tests/test_viewer.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5",
+  "turn_id": "e73790a3b65f",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 286,
+    "cache_creation_tokens": 293587,
+    "cache_read_tokens": 19887833,
+    "output_tokens": 69418,
+    "api_call_count": 143
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-caveman-2026-08-23T08:51:04.273719Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "caveman"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "91f2720306f3",
+      "timestamp": "2026-08-23T08:51:04.273719Z",
+      "native": {
+        "command": "/caveman"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/caveman",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-23T09:10:53.1941696Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 531,
+    "human_modified": 1322,
+    "human_removed": 0,
+    "total_committed": 531,
+    "total_lines_changed": 1853,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 1256,
+      "user_lines_removed": 725,
+      "agent_lines_added": 698,
+      "agent_lines_removed": 698,
+      "user_added_per_file": {
+        "README.md": 4,
+        "autoimplants/fea.py": 30,
+        "autoimplants/patch.py": 81,
+        "autoimplants/self_intersection.py": 110,
+        "autoimplants/viewer_template.html": 327,
+        "real_cases/synthetic_patch/case.json": 18,
+        "real_cases/synthetic_patch/make_case.py": 36,
+        "real_cases/synthetic_patch/surgical_plan.json": 17,
+        "real_cases/synthetic_scapula/case.json": 18,
+        "real_cases/synthetic_scapula/make_case.py": 34,
+        "real_cases/synthetic_scapula/surgical_plan.json": 17,
+        "tests/test_fea.py": 57,
+        "tests/test_import_case.py": 8,
+        "tests/test_patch_family.py": 37,
+        "tests/test_surgical_plan.py": 11,
+        "tests/test_viewer.py": 451
+      },
+      "user_removed_per_file": {
+        "README.md": 2,
+        "autoimplants/fea.py": 5,
+        "autoimplants/patch.py": 9,
+        "autoimplants/viewer_template.html": 320,
+        "real_cases/synthetic_patch/case.json": 1,
+        "real_cases/synthetic_patch/make_case.py": 4,
+        "real_cases/synthetic_patch/surgical_plan.json": 1,
+        "real_cases/synthetic_scapula/case.json": 1,
+        "real_cases/synthetic_scapula/make_case.py": 3,
+        "real_cases/synthetic_scapula/surgical_plan.json": 1,
+        "tests/test_viewer.py": 378
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 937,
+      "agent_lines_removed": 407
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1279,
+      "agent_lines_removed": 749
+    }
+  ]
+}
