@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import sys
 from pathlib import Path
 
@@ -177,6 +178,72 @@ def segment_bone(volume: np.ndarray, threshold_hu: float = DEFAULT_THRESHOLD_HU)
     return ndimage.binary_closing(mask, iterations=2)
 
 
+# How far outside the planned landmarks the region of interest still reaches. The
+# plan's landmarks sit on the shaft, inset from both bone ends, so the margin has
+# to cover the condyles and the neck as well as the surrounding cortex.
+ROI_MARGIN_MM = 60.0
+
+
+def crop_to_landmarks(
+    volume: np.ndarray,
+    affine: np.ndarray,
+    landmarks_mm: list[np.ndarray] | np.ndarray,
+    margin_mm: float = ROI_MARGIN_MM,
+):
+    """Restrict the volume to the region the surgical plan is about.
+
+    A clinical series is rarely cropped to one bone: a lower-limb scan holds the
+    femur and the tibia bridged at the joint, so the largest connected structure
+    spans both and the mesh gate rejects it for being far too long -- correctly,
+    because that surface is not a femur. The plan already says where the bone is,
+    in the same patient coordinates as the series, so its landmarks define the
+    region of interest instead of a hand-tuned slice range.
+
+    Returns ``(volume, affine)`` for the sub-volume; the affine is shifted so the
+    cropped indices still map to the same patient coordinates as before.
+    """
+    points = np.asarray(landmarks_mm, dtype=float).reshape(-1, 3)
+    if len(points) == 0:
+        raise DicomError("no landmarks to crop to")
+
+    # Patient mm -> continuous (x, y, z) index, then to the [z, y, x] array order.
+    inverse = np.linalg.inv(affine)
+    index_xyz = (points - affine[:3, 3]) @ inverse[:3, :3].T
+
+    # A margin in mm is a different number of voxels on every axis.
+    spacing = np.linalg.norm(affine[:3, :3], axis=0)
+    pad_xyz = margin_mm / np.maximum(spacing, 1e-6)
+
+    low_xyz = np.floor(index_xyz.min(axis=0) - pad_xyz).astype(int)
+    high_xyz = np.ceil(index_xyz.max(axis=0) + pad_xyz).astype(int)
+
+    shape_xyz = np.array(volume.shape[::-1])
+    if np.any(low_xyz >= shape_xyz) or np.any(high_xyz < 0):
+        raise DicomError(
+            "the plan's landmarks fall outside the CT volume. The plan and the "
+            "series have to share one patient coordinate frame"
+        )
+
+    low = np.clip(low_xyz, 0, shape_xyz - 1)
+    high = np.clip(high_xyz + 1, low + 1, shape_xyz)
+
+    cropped = volume[low[2] : high[2], low[1] : high[1], low[0] : high[0]]
+    if cropped.size == 0:
+        raise DicomError("the landmark region of interest is empty")
+
+    shifted = affine.copy()
+    shifted[:3, 3] = affine[:3, 3] + affine[:3, :3] @ low.astype(float)
+    return cropped, shifted
+
+
+def plan_landmarks(plan_path: str | Path) -> list[list[float]]:
+    """The landmark points a surgical plan carries, in patient mm."""
+    plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+    landmarks = (plan.get("coordinate_frame") or {}).get("landmarks") or {}
+    points = [value for value in landmarks.values() if isinstance(value, (list, tuple))]
+    return [[float(c) for c in point] for point in points if len(point) == 3]
+
+
 def mask_to_mesh(mask: np.ndarray, affine: np.ndarray):
     """Surface the mask with marching cubes, in patient coordinates."""
     measure = _require("skimage.measure")
@@ -200,9 +267,12 @@ def dicom_to_mesh(
     bone: str = "femur",
     threshold_hu: float = DEFAULT_THRESHOLD_HU,
     max_faces: int = mesh_quality.MAX_FACES,
+    landmarks_mm: list[list[float]] | None = None,
 ):
     """Full conversion, then the same mesh gate a hand-segmented mesh must pass."""
     volume, affine = load_series(dicom_dir)
+    if landmarks_mm:
+        volume, affine = crop_to_landmarks(volume, affine, landmarks_mm)
     mask = segment_bone(volume, threshold_hu)
     mesh = mask_to_mesh(mask, affine)
 
@@ -228,6 +298,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dicom-dir", required=True, help="directory holding one DICOM series")
     ap.add_argument("--bone", default="femur", choices=sorted(mesh_quality.BONE_EXTENT_MM))
     ap.add_argument("--out", required=True, help="STL to write")
+    ap.add_argument(
+        "--plan",
+        default=None,
+        help="surgical-plan JSON whose landmarks bound the region of interest. Without "
+             "it the whole series is segmented, which on a lower-limb scan gives the "
+             "femur and tibia as one structure",
+    )
     ap.add_argument("--threshold-hu", type=float, default=DEFAULT_THRESHOLD_HU)
     ap.add_argument("--max-faces", type=int, default=mesh_quality.MAX_FACES)
     args = ap.parse_args(argv)
@@ -249,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
             bone=args.bone,
             threshold_hu=args.threshold_hu,
             max_faces=args.max_faces,
+            landmarks_mm=plan_landmarks(args.plan) if args.plan else None,
         )
     except DicomError as exc:
         print(f"DICOM conversion failed: {exc}", file=sys.stderr)

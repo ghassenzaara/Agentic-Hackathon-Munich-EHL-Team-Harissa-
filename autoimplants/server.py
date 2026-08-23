@@ -448,7 +448,15 @@ class RunManager:
                 phi_tags=phi,
                 phase="Segmenting bone from the CT volume",
             )
-            dicom_to_mesh.dicom_to_mesh(series, bone_path, bone="femur")
+            # The plan's landmarks bound the region of interest: a clinical scan
+            # usually holds more than the planned bone, and segmenting all of it
+            # yields femur-plus-tibia, which the mesh gate rightly rejects.
+            dicom_to_mesh.dicom_to_mesh(
+                series,
+                bone_path,
+                bone="femur",
+                landmarks_mm=dicom_to_mesh.plan_landmarks(plan_path),
+            )
 
         self.store.update(run_id, status="ingesting", phase="Importing the surgical plan")
         case_id = str(record["case_id"])
@@ -1259,7 +1267,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="autoimplants.server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--public-url",
+        default=os.environ.get("AUTOIMPLANTS_PUBLIC_URL", ""),
+        help="Base URL the design agent posts to. Defaults to the served host and "
+             "port, which only a local agent can reach; give a tunnel URL for a "
+             "cloud sandbox.",
+    )
     args = parser.parse_args(argv)
+    # The job URL has to name the port we are actually serving, or the agent posts
+    # its design into nothing.
+    public_url = args.public_url or f"http://{args.host}:{args.port}"
+    os.environ["AUTOIMPLANTS_PUBLIC_URL"] = public_url
+    # The module-level app was built while importing this module, before the port
+    # was known, so tell its manager where it is actually being served.
+    app.state.manager.public_base_url = public_url
     import uvicorn
 
     uvicorn.run("autoimplants.server:app", host=args.host, port=args.port, reload=False)

@@ -17,6 +17,7 @@ out/
 out_*/
 .autoimplants-runtime/
 .autoimplants-worktrees/
+.autoimplants-workspaces/
 *.step
 *.inp
 *.frd
