@@ -20,6 +20,7 @@ import subprocess
 import threading
 import time
 import uuid
+import zipfile
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -30,7 +31,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from autoimplants import case_io, viewer
+from autoimplants import case_io, dicom_to_mesh, import_case, viewer
 from autoimplants.contracts import Report
 from harness.devin_client import DevinClient, DevinError, load_env
 from harness.guard import check_range, changed_files, is_ancestor
@@ -44,8 +45,12 @@ DEMO_BONE = REPO_ROOT / "inputs" / "bone.stl"
 VALIDATORS = "geometry,pending_stress"
 ACU_PER_ITERATION = 5
 MAX_ITERATIONS = 3
+MAX_BONE_BYTES = 25 * 1024 * 1024
+MAX_DICOM_BYTES = 1024 * 1024 * 1024
+MAX_PLAN_BYTES = 1024 * 1024
 ACTIVE_STATES = {
     "preparing",
+    "ingesting",
     "validating",
     "devin_running",
     "fetching",
@@ -82,6 +87,51 @@ def run_command(
         detail = (result.stderr or result.stdout).strip()
         raise RuntimeError(f"{' '.join(args)} failed: {detail[:1500]}")
     return result.stdout.strip()
+
+
+async def save_upload(upload: UploadFile, destination: Path, limit: int) -> Path:
+    """Stream an upload to disk, refusing it the moment it passes ``limit``.
+
+    Streamed rather than read whole: a CT series is hundreds of megabytes and
+    must never be held in memory, and the cap has to bite before the disk fills.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    size = 0
+    with destination.open("wb") as handle:
+        while chunk := await upload.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                handle.close()
+                destination.unlink(missing_ok=True)
+                raise HTTPException(
+                    413, f"{destination.name} exceeds the {limit // (1024 * 1024)} MB upload limit"
+                )
+            handle.write(chunk)
+    if not size:
+        raise HTTPException(422, f"{destination.name} is empty")
+    return destination
+
+
+def extract_series(archive: Path, destination: Path) -> int:
+    """Unpack an uploaded DICOM archive flat, ignoring the sender's directory tree.
+
+    Flat on purpose: a series exported from a PACS can arrive nested arbitrarily
+    deep, and the reader globs recursively anyway. Member names are reduced to
+    their basename, which also removes any ``..`` or absolute path escape.
+    """
+    destination.mkdir(parents=True, exist_ok=True)
+    written = 0
+    with zipfile.ZipFile(archive) as bundle:
+        for info in bundle.infolist():
+            name = Path(info.filename).name
+            if info.is_dir() or not name or name.startswith("."):
+                continue
+            with bundle.open(info) as source, (destination / f"{written:05d}_{name}").open("wb") as target:
+                shutil.copyfileobj(source, target)
+            written += 1
+    if not written:
+        raise RuntimeError("The uploaded archive contains no files.")
+    return written
 
 
 def atomic_json(path: Path, payload: dict) -> None:
@@ -253,17 +303,29 @@ class RunManager:
                     error=str(exc),
                 )
 
-    def create_run(self, max_iterations: int) -> dict:
+    def create_run(self, max_iterations: int, intake: Path | None = None) -> dict:
         run_id = uuid.uuid4().hex[:12]
         branch = f"devin/autoimplants-{run_id}"
         base_sha = run_command(["git", "rev-parse", "HEAD"], self.repo_root)
-        case = case_io.load_case(self.demo_case_path)
+        if intake is None:
+            case_id = case_io.load_case(self.demo_case_path).get("case_id", "SYNTH-FEMUR-001")
+            phase = "Waiting for the Devin worker"
+        else:
+            # Read the id straight from the plan: the case bundle does not exist
+            # yet, and the UI needs something to label the run with immediately.
+            plan = json.loads((intake / "surgical_plan.json").read_text(encoding="utf-8"))
+            case_id = str(plan.get("case_id", "IMPORTED-CASE"))
+            phase = "Queued for CT intake"
+            staged = self.store.run_dir(run_id) / "intake"
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(intake), str(staged))
+            intake = staged
         record = {
             "schema_version": 1,
             "run_id": run_id,
-            "case_id": case.get("case_id", "SYNTH-FEMUR-001"),
+            "case_id": case_id,
             "status": "queued",
-            "phase": "Waiting for the Devin worker",
+            "phase": phase,
             "created_at": utc_now(),
             "updated_at": utc_now(),
             "version": 0,
@@ -283,6 +345,11 @@ class RunManager:
             "reviews": [],
             "active_session": None,
             "error": None,
+            "intake": str(intake) if intake else None,
+            "case_path": None,
+            "case_source": "bundled demo case" if intake is None else "uploaded scan and surgical plan",
+            "phi_tags": [],
+            "intake_report": None,
         }
         self.store.put(record)
         self.enqueue(run_id, preserve_status=True)
@@ -358,6 +425,71 @@ class RunManager:
         )
         return worktree
 
+    def _ingest(self, record: dict, worktree: Path) -> dict:
+        """Uploaded scan plus plan to a validated case bundle inside the worktree.
+
+        The bundle is committed on the run's own branch so the Devin sandbox
+        validates the *patient's* case rather than the repo's demo one. Only
+        derived artefacts travel: the mesh, the placed plan and the transform.
+        The DICOM never leaves this machine.
+        """
+        run_id = record["run_id"]
+        intake = Path(record["intake"])
+        plan_path = intake / "surgical_plan.json"
+        bone_path = intake / "bone.stl"
+        series = intake / "series"
+
+        phi: list[str] = []
+        if series.is_dir():
+            self.store.update(run_id, status="ingesting", phase="Reading the uploaded DICOM series")
+            phi = sorted(dicom_to_mesh.scan_for_phi(series))
+            self.store.update(
+                run_id,
+                phi_tags=phi,
+                phase="Segmenting bone from the CT volume",
+            )
+            dicom_to_mesh.dicom_to_mesh(series, bone_path, bone="femur")
+
+        self.store.update(run_id, status="ingesting", phase="Importing the surgical plan")
+        case_id = str(record["case_id"])
+        out_dir = worktree / "real_cases" / case_id / "generated"
+        report, case_path = import_case.import_case(plan_path, bone_path, out_dir=out_dir)
+        durable = self.store.run_dir(run_id) / "case"
+        atomic_json(durable / "import_report.json", report.to_dict())
+        if case_path is None:
+            failures = [check.id for check in report.checks if check.status != "PASS"]
+            raise RuntimeError(
+                "The uploaded scan and plan did not pass intake: " + ", ".join(failures)
+            )
+
+        relative = case_path.relative_to(worktree).as_posix()
+        run_command(["git", "add", "--force", str(out_dir.relative_to(worktree))], worktree)
+        run_command(
+            [
+                "git",
+                "commit",
+                "-m",
+                f"Add imported case bundle for {case_id}\n\n"
+                "Derived mesh plus placed surgical plan for this run only. "
+                "No DICOM and no identifying tags are included.",
+            ],
+            worktree,
+        )
+        run_command(
+            ["git", "push", "origin", f"HEAD:refs/heads/{record['branch']}"], worktree, timeout=180
+        )
+        return self.store.update(
+            run_id,
+            case_path=relative,
+            intake_report=report.to_dict(),
+            phi_tags=phi,
+            phase="Case bundle imported",
+        )
+
+    def _case_path(self, record: dict, worktree: Path) -> Path:
+        relative = record.get("case_path") or "inputs/case.json"
+        return worktree / relative
+
     def _validate(self, worktree: Path, record: dict, iteration: int) -> tuple[Report, Path]:
         out_dir = self.store.run_dir(record["run_id"]) / "working"
         if out_dir.exists():
@@ -367,7 +499,7 @@ class RunManager:
             repo_root=worktree,
             out_dir=out_dir,
             iteration=iteration,
-            case_path=worktree / "inputs" / "case.json",
+            case_path=self._case_path(record, worktree),
         )
         return report, out_dir
 
@@ -457,6 +589,9 @@ class RunManager:
         worktree = self._prepare_worktree(record)
         record = self.store.get(run_id)
 
+        if record.get("intake") and not record.get("case_path"):
+            record = self._ingest(record, worktree)
+
         if not record["iterations"]:
             self.store.update(run_id, status="validating", phase="Validating the baseline geometry")
             report, out_dir = self._validate(worktree, record, 0)
@@ -502,11 +637,20 @@ class RunManager:
             repo_root=worktree,
             feedback=feedback,
         )
+        case_flag = ""
+        if record.get("case_path"):
+            case_flag = f" --case {record['case_path']}"
         prompt += (
             "\n\nFor this live workflow the authoritative validation command is:\n"
-            "`.venv/bin/python -m autoimplants.run --validators geometry,pending_stress`\n"
+            f"`.venv/bin/python -m autoimplants.run --validators geometry,pending_stress{case_flag}`\n"
             "The eight pending stress checks must remain SKIP; do not edit them."
         )
+        if case_flag:
+            prompt += (
+                "\nThis run designs against an imported patient case committed on the "
+                "branch, not the demo case. Its bundle is a locked input: derive the "
+                "geometry from it, never edit it."
+            )
         repo_url = run_command(["git", "remote", "get-url", "origin"], worktree)
         client = self.client_factory()
         created = client.create_session(
@@ -757,7 +901,9 @@ def create_app(
 
     @app.post("/api/runs", status_code=202)
     async def create_run_endpoint(
-        bone: UploadFile = File(...),
+        bone: UploadFile | None = File(default=None),
+        dicom: UploadFile | None = File(default=None),
+        plan: UploadFile | None = File(default=None),
         max_iterations: int = Form(default=MAX_ITERATIONS),
         acu_per_iteration: int = Form(default=ACU_PER_ITERATION),
         cost_ack: bool = Form(default=False),
@@ -771,24 +917,54 @@ def create_app(
         readiness = manager.preflight()
         if not readiness["ready"]:
             raise HTTPException(503, " · ".join(readiness["errors"]) or "Live workflow is not ready")
-        if not bone.filename or not bone.filename.lower().endswith(".stl"):
-            raise HTTPException(422, "Upload the bundled demo bone.stl")
-        digest = hashlib.sha256()
-        size = 0
-        while chunk := await bone.read(1024 * 1024):
-            size += len(chunk)
-            if size > 25 * 1024 * 1024:
-                raise HTTPException(413, "The demo STL exceeds the 25 MB upload limit")
-            digest.update(chunk)
-        if digest.hexdigest() != sha256_file(manager.demo_bone_path):
-            raise HTTPException(
-                422,
-                "This first live workflow accepts only the bundled demo femur. "
-                "Other anatomy requires a bone mesh plus surgical-plan case bundle.",
-            )
+        if bool(bone and bone.filename) == bool(dicom and dicom.filename):
+            raise HTTPException(422, "Upload exactly one anatomy source: a bone STL or a zipped DICOM series")
+
+        # A surgical plan is what makes a case a case: screw entries, directions,
+        # keepouts and the landmarks the frame is recovered from. Imaging alone
+        # cannot supply them, so anything other than the bundled demo femur has
+        # to arrive with one.
+        staged: Path | None = None
+        if plan and plan.filename:
+            staged = manager.runtime_root / "uploads" / uuid.uuid4().hex
+            staged.mkdir(parents=True, exist_ok=True)
+            try:
+                await save_upload(plan, staged / "surgical_plan.json", MAX_PLAN_BYTES)
+                json.loads((staged / "surgical_plan.json").read_text(encoding="utf-8"))
+                if dicom and dicom.filename:
+                    archive = staged / "series.zip"
+                    await save_upload(dicom, archive, MAX_DICOM_BYTES)
+                    extract_series(archive, staged / "series")
+                    archive.unlink()
+                elif bone is not None:
+                    await save_upload(bone, staged / "bone.stl", MAX_BONE_BYTES)
+            except HTTPException:
+                shutil.rmtree(staged, ignore_errors=True)
+                raise
+            except (OSError, ValueError, RuntimeError, zipfile.BadZipFile) as exc:
+                shutil.rmtree(staged, ignore_errors=True)
+                raise HTTPException(422, f"Intake rejected: {exc}") from exc
+        elif dicom and dicom.filename:
+            raise HTTPException(422, "A CT series needs a surgical plan JSON alongside it")
+        elif bone is not None:
+            digest = hashlib.sha256()
+            size = 0
+            while chunk := await bone.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_BONE_BYTES:
+                    raise HTTPException(413, "The STL exceeds the 25 MB upload limit")
+                digest.update(chunk)
+            if digest.hexdigest() != sha256_file(manager.demo_bone_path):
+                raise HTTPException(
+                    422,
+                    "Without a surgical plan only the bundled demo femur can be designed. "
+                    "Other anatomy requires a bone mesh or CT series plus a surgical-plan JSON.",
+                )
         try:
-            return public_record(manager.create_run(max_iterations))
+            return public_record(manager.create_run(max_iterations, intake=staged))
         except Exception as exc:
+            if staged is not None:
+                shutil.rmtree(staged, ignore_errors=True)
             raise HTTPException(503, str(exc)) from exc
 
     @app.get("/api/runs")
