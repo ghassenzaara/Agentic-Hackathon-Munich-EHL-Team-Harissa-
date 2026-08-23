@@ -1,0 +1,124 @@
+hey I am working on this project here is the repo on my own branch now, here is inofs reserasch form my teammates , I got two paragraphs and two Images and two images ( pipelines ) create a claude.md file after you understand and process the topic :
+
+par2:
+
+hey I am working on this project here is the repo on my own branch now, here is inofs reserasch form my teammates , I got two paragraphs and two Images and two images ( pipelines , I added then in the project folder  ) create a claude.md file after you understand and process the topic :
+
+par1:
+Stage 1 — the scan becomes a shape. A CT scan is a stack of grayscale slices. Bone is much brighter than everything around it, so software (TotalSegmentator) picks out the bone pixels and turns them into a 3D surface. You then throw most of it away: you only keep the section of the tibia where the plate will sit. Smaller mesh, faster everything downstream.
+
+Stage 2 — Devin writes a program that draws the plate. This is the key move. Devin doesn't sculpt anything by hand. It writes Python that, when run, produces a plate: "follow this curve along the bone, sweep this cross-section along it, put six screw holes at these positions, taper the thickness from 3.5 mm to 2 mm." The plate is the output of the code. Change a line of code, get a different plate.
+
+Stage 3 — the verifier grades it. This is where the loop gets its teeth. The verifier takes the plate, chops it into a few hundred thousand tiny tetrahedra, applies the loads a real tibia sees when someone walks, and computes the stress in every one of them. It then checks a list: is the peak stress safely below the yield limit? Is the plate too stiff? Too heavy? Does it collide with the bone? Do the screws exit where they shouldn't? Can a printer actually make it? It returns numbers, not opinions.
+
+Stage 4 — the verdict comes back as instructions, not just a score. "Failed: peak stress 940 MPa at the third screw hole, safety factor 1.4, need 2.5." Devin now edits the code and runs again. Nobody is watching. This repeats until everything passes.
+
+Stage 5 — out come real files. The 3D model, the printer instructions, and a report showing the simulated standard test results.
+
+
+
+
+
+par2:Why the split matters
+
+The verifier lives outside. If the physics setup sat in the same repo Devin edits, Devin would eventually "fix" a failing check by softening it — lower the load, relax the threshold, change the material. That's not malice, it's just what agents do when a test blocks them. So loads, boundary conditions, material, and pass thresholds are frozen behind an API. Devin can ask for a score. It cannot change how the score is computed.
+
+Devin's machine is a workshop, not a courtroom. On its own box it can experiment freely — render pictures, run quick approximate checks, try things. None of that counts. Only what comes back from the outside service goes in the record.
+
+Two different kinds of thinking, split between two tools. Devin decides shape questions: should there be a rib here, should the head split into two columns, should the plate be routed further around the bone. A small numeric optimizer decides number questions: exactly how thick, exactly what fillet radius. The optimizer can try 200 variations for the cost of one Devin turn. That's what keeps the whole thing affordable — five Devin decisions instead of forty.
+
+Pictures fix the hardest problem. A stress result normally arrives as "node 18437, coordinates (14.2, 3.8, 91.5)." Useless. Devin renders the plate with the stress colored on it, looks at the image, and can say "the hotspot is on the inner edge of the third hole where the plate narrows." That's something you can act on. You also tag each piece of geometry with the code that made it, so the hotspot maps back to an exact variable — the picture explains why, the tag says where.
+
+---
+
+can you create an obsidian vault for me with steps , simplified explanations  , what do you think of this pipeline and what are the possible next steps to make it better ?
+
+---
+
+gra
+
+---
+
+too much info in the obsidian notes can you make it less I can not fully comprehend
+
+---
+
+honestly too much note files reduce them
+
+---
+
+teammate added 2 files and pushed them I do not know how to access them with my current branch
+
+---
+
+tell me how to use devin and integrate it in the pipeline ( i do not want to consume tokens )
+
+---
+
+can you specify exactly where I run these commands ?   explain from scratch how to use devin in this project
+
+---
+
+there are 2 branch except for mine and main what are they and what they differ ( same thing ? )
+
+---
+
+if I write this command it merges the devin branch with my current branch am I right =
+
+---
+
+now the skeleton is merged in origin/main I want to have that update into my branch what to do , what happens if there is conflict ?
+
+---
+
+now everything is in place I believe , modify claude.md accordingly and tell me what should be included in the UI from the nature of the system we are building I will work also on a front end
+
+---
+
+now add the obsidian notes and the claude.md to gitignore , great , now my plan is to create a ui , first can you tell me how to download this set of skills ? 
+
+github.com/leonxlnx/taste-skill
+
+---
+
+Install it for me as a plugin but cant I continue in this chat should I continue in a cli ?
+
+---
+
+now I ran " /plugin marketplace add Leonxlnx/taste-skill" in the claude terminal and would like to know how to choose  " industrial-brutalist-ui" and give the steps to build the ui
+
+---
+
+/design-taste-frontend-v1 can you please fix the front end with a theme of a CT scan ? configure main menu seperately and then to put the input as a ct scan file along other parameters , remove the garbage text in the page when you scroll down taht has nothing to do with the system
+
+---
+
+can you look up in pub med for any relevant researsch about this problem/theme ? https://pubmed.ncbi.nlm.nih.gov/
+
+---
+
+I want to throw away the UI I made and get up to date with the last merged branch
+
+---
+
+now I am uptodate can you check again with the reasearsch info you found right and wrong ?
+
+---
+
+for our Presentation , website notes infos  and also based on the researsches I want to make a feedback on how this idea/technology saves Time / money / logistics  and makes the procedure easier  and at the end how can we take this technology further and improve it more and maybe to other applications
+
+---
+
+scan you extract the same information in the created artifact and give me a an md file ?
+
+---
+
+can you fix how this part is : What we have not measured , the lines are jumped one after the other
+
+---
+
+I want to get up to date with the main now
+
+---
+
+I want to be up to date again
