@@ -24,9 +24,28 @@ DEFAULT_PARAMS: dict = {
     # knife edge, where its sign depends on ray-sample alignment.
     "mount_clearance_mm": 0.4,
 
-    # --- topology handles (baseline ignores these; Devin reaches for them) -----
-    # [[s, t], ...] with s in 0..1 along the plate length, t in mm
-    "thickness_profile": [],
+    # --- topology handles ------------------------------------------------------
+    # [[s, t], ...] with s in 0..1 along the plate length, t in mm.
+    #
+    # Section follows the bending moment. The gait moment peaks over the fracture
+    # at z=190 mm and tapers to zero at the outermost screws, and the weakest
+    # station of a plate is the one through a screw hole, so the wall is thickest
+    # across the two inner holes (z=175 and 205 mm, s=0.42 and 0.58) and tapers to
+    # the manufacturing minimum at the ends, where the moment has run out. Holding
+    # 5.5 mm everywhere would cost ~74 g against a 55 g budget; spending it only
+    # where the moment is costs 53.9 g and leaves every hole 4% under the
+    # allowable. The four inner values are set by the hole checks, not chosen for
+    # roundness: they equalise the margin at z=145/235 and z=175/205.
+    "thickness_profile": [
+        [0.0, 2.6],
+        [0.0833, 2.6],
+        [0.25, 3.95],
+        [0.4167, 5.5],
+        [0.5833, 5.5],
+        [0.75, 3.95],
+        [0.9167, 2.6],
+        [1.0, 2.6],
+    ],
     # [{"s": 0.5, "length_mm": 30, "height_mm": 2.0, "width_mm": 4.0}, ...]
     "ribs": [],
     # indices of screw holes to convert from round hole to sliding slot
