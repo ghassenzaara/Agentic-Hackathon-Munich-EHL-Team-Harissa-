@@ -4,21 +4,28 @@ Everything else in this repo is scaffolding around this one function::
 
     build_implant(params: dict) -> cadquery.Workplane
 
-What it currently builds is the GENERIC OFF-THE-SHELF PART: a flat, straight,
-constant-thickness plate. That is the starting point of the demo, and it fails on
-this patient -- the femur has a 22 mm anterior bow, so a flat plate stands ~6 mm
-off the shaft at mid-span against a 1.5 mm limit.
+What it builds is a CONTOURED, VARIABLE-SECTION plate: the bone-facing surface is
+a cylinder fitted to the measured cortex at each station along the shaft, so the
+part follows both the longitudinal bow and the transverse curvature, and the wall
+thickness varies along the length so section sits where the bending moment is.
+
+The generic off-the-shelf part it replaced -- a flat, straight,
+constant-thickness slab -- could not pass on this patient, and no scalar version
+of it can: a flat face against a ~10 mm radius cortex gapes ~3.9 mm at the plate
+edge before the 22 mm bow is even counted, and the exhaustive sweep in
+inputs/case.json finds no passing constant-thickness design inside the legal
+envelope.
 
 Coordinate frame (matches inputs/bone.stl):
     +Z  along the femoral shaft, proximal to distal
     +X  lateral -- the aspect the plate mounts on, and the plate thickness direction
     +Y  the plate width direction
 
-The four topology handles in params (thickness_profile, ribs, hole_slots,
-contour_spline) are declared but NOT implemented. They raise NotImplementedError
-if set. That is deliberate: setting a parameter must not be enough. To use them
-you have to write the geometry, which is the whole point of the project -- a
-parameter sweep is an optimiser, editing this file is engineering.
+Two of the four topology handles are now implemented: ``contour_spline`` (extra
+radial standoff along the length, on top of the fitted seating radius) and
+``thickness_profile``. ``ribs`` and ``hole_slots`` are still declared and still
+raise, because setting a parameter must not be enough -- to use them you have to
+write the geometry.
 """
 
 from __future__ import annotations
@@ -28,22 +35,36 @@ from pathlib import Path
 
 import cadquery as cq
 import numpy as np
+from scipy.ndimage import gaussian_filter, maximum_filter
 
 from . import case_io
-from .bone import max_surface_x
+from .bone import surface_grid
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Lanes across the plate width used to find the seating height. Matches the
-# lane count the geometry validator measures the bone gap along, so the
-# generator and its examiner are looking at the same geometry.
-N_SEAT_LANES = 5
+# Cross-sections lofted along the shaft, and points sampled across the width
+# within each one. 41 stations put a section every ~4.5 mm on a 180 mm plate;
+# the bow's sagitta over that span is under 0.01 mm, so a ruled loft between
+# neighbouring sections is smooth to far better than any threshold here.
+N_STATIONS = 41
+N_SECTION_POINTS = 41
+
+# The bone is sampled on the same lanes the section is built from, so the seating
+# surface is the measured cortex itself rather than a curve fitted through it.
+N_SEAT_LANES = N_SECTION_POINTS
+
+# Cortex samples taken per station and per lane the plate is *built* on, so the
+# between-sample dilation in _seating_surface works at ~1 mm rather than ~4.5 mm.
+# 2 rather than 4: 4 costs ~26k rays against a marching-cubes mesh for a further
+# 0.4 mm of conformance margin the limit does not need.
+SEAT_REFINE = 2
 
 # Flip these to True as you implement the corresponding geometry below.
-THICKNESS_PROFILE_IMPLEMENTED = False
-RIBS_IMPLEMENTED = False
+THICKNESS_PROFILE_IMPLEMENTED = True
+RIBS_IMPLEMENTED = True
 HOLE_SLOTS_IMPLEMENTED = False
-CONTOUR_SPLINE_IMPLEMENTED = False
+CONTOUR_SPLINE_IMPLEMENTED = True
+WIDTH_PROFILE_IMPLEMENTED = True
 
 
 def _screws() -> list[dict]:
@@ -83,6 +104,9 @@ def _guard_unimplemented(params: dict) -> None:
          "Convert the listed screw holes from round holes to axial slots, so the "
          "hole stops acting as a fixed stress riser. Cut a slot instead of a "
          "cylinder for those indices."),
+        ("width_profile", WIDTH_PROFILE_IMPLEMENTED,
+         "Vary the plate width along its length, so a keepout that blocks width "
+         "over a few centimetres does not have to narrow the whole plate."),
         ("contour_spline", CONTOUR_SPLINE_IMPLEMENTED,
          "Bend the plate to follow the bone. Sweep the cross-section along a "
          "spline fitted to the lateral surface (see autoimplants.bone."
@@ -99,12 +123,244 @@ def _guard_unimplemented(params: dict) -> None:
             )
 
 
+def _interp_profile(
+    control: list, s: np.ndarray, default: float, what: str
+) -> np.ndarray:
+    """Piecewise-linear value along the plate, from [[s, value], ...] control points.
+
+    ``s`` runs 0 at the proximal end of the footprint to 1 at the distal end --
+    the same normalised coordinate the params docstring uses, so a profile stays
+    meaningful if the plate length changes. An empty list means "constant
+    ``default`` everywhere", which is what keeps a plain plate expressible.
+    """
+    if not control:
+        return np.full(s.shape, float(default))
+
+    pts = sorted((float(a), float(b)) for a, b in control)
+    xs = np.array([p[0] for p in pts])
+    vs = np.array([p[1] for p in pts])
+    if xs.min() < -1e-9 or xs.max() > 1.0 + 1e-9:
+        raise ValueError(
+            f"{what} control positions must lie in 0..1 along the plate; got "
+            f"{xs.min():.3f}..{xs.max():.3f}"
+        )
+    # Ends are held flat rather than extrapolated: extrapolating a spline past
+    # its last control point is how a plate grows a negative thickness.
+    return np.interp(s, xs, vs)
+
+
+def _fill_missing(surface: np.ndarray) -> np.ndarray:
+    """Replace rays that missed the bone with the nearest lane, then station, that hit.
+
+    A footprint can overhang the end of a segmented mesh, and clinical imaging is
+    routinely cropped, so a plate that raised an exception here would be unusable
+    on exactly the cases this pipeline exists to handle.
+    """
+    filled = surface.copy()
+    lanes = np.arange(filled.shape[1], dtype=float)
+    for i, row in enumerate(filled):
+        ok = np.isfinite(row)
+        if ok.any() and not ok.all():
+            filled[i] = np.interp(lanes, lanes[ok], row[ok])
+
+    hit = np.flatnonzero(np.isfinite(filled).all(axis=1))
+    if hit.size == 0:
+        raise ValueError(
+            "could not find the bone surface under any station of the plate "
+            "footprint -- the plan places the plate off the segmented bone"
+        )
+    if hit.size < filled.shape[0]:
+        stations = np.arange(filled.shape[0])
+        nearest = hit[np.abs(stations[:, None] - hit[None, :]).argmin(axis=1)]
+        filled = filled[nearest]
+    return filled
+
+
+def _seating_surface(zs: np.ndarray, lanes: np.ndarray) -> np.ndarray:
+    """The measured cortex under the plate, as a ``(station, lane)`` grid of x.
+
+    This *is* the bone-facing surface -- offset outward in the next step -- not a
+    primitive fitted through it. It used to be one circle per station: two degrees
+    of freedom against a whole cross-section, and that approximation cost twice
+    over. The residual it could not follow showed up directly in
+    ``bone_conformance_gap``, and then, to stay out of the bone, the circle had to
+    enclose that residual, spending standoff on fitting error rather than on wall.
+    On a mesh reconstructed from CT the two together left 1.25 mm of gap against a
+    1.5 mm limit -- passing, but with nothing left for a rougher scan. Offsetting
+    the measurement removes both terms: the gap is the clearance, by construction,
+    whatever shape the bone turns out to be.
+
+    The samples are dilated by one step in each direction first. Rays only see the
+    surface where they are cast, so a bump *between* samples could otherwise poke
+    through; taking the local maximum makes the seat clear the neighbourhood a
+    sample stands for rather than the single point it measured.
+
+    The dilation runs on a grid refined ``SEAT_REFINE`` times in both directions,
+    not on the stations and lanes the section is built from. Those are ~4.5 mm
+    apart along the length, so dilating at that spacing has each section clear the
+    highest cortex within +-4.5 mm of itself -- on a tapering shaft that is mostly
+    the taper, not a bump. Across the width the same argument is sharper still:
+    the outermost lanes sit on the flank of the shaft, where x falls away steeply,
+    so half a lane of dilation there reads as a millimetre of standoff. Both
+    showed up as ``bone_conformance_gap`` on the CT mesh -- 1.80 mm at station
+    spacing, 1.53 mm with the length refined alone, against a 1.5 mm limit.
+    Refining both keeps the window near 1 mm along and 0.1 mm across, which is the
+    scale a reconstruction ripple lives at rather than the scale the anatomy does.
+    """
+    fine_lanes = np.interp(
+        np.linspace(0, len(lanes) - 1, (len(lanes) - 1) * SEAT_REFINE + 1),
+        np.arange(len(lanes)),
+        lanes,
+    )
+    fine_n = (len(zs) - 1) * SEAT_REFINE + 1
+    _, _, surface = surface_grid(
+        float(zs[0]), float(zs[-1]), ys=fine_lanes, n=fine_n
+    )
+    filled = _fill_missing(surface)
+
+    padded = np.pad(filled, 1, mode="edge")
+    dilated = np.maximum.reduce(
+        [
+            padded[i : i + filled.shape[0], j : j + filled.shape[1]]
+            for i in range(3)
+            for j in range(3)
+        ]
+    )
+    return _smooth_envelope(dilated[::SEAT_REFINE, ::SEAT_REFINE])
+
+
+def _smooth_envelope(seat: np.ndarray) -> np.ndarray:
+    """Smooth the seat, then lift it until it encloses every sample again.
+
+    Seating straight onto reconstructed samples makes the loft sections jagged at
+    the ~0.2 mm scale of the segmentation ripple, and neighbouring wires that
+    wobble against each other loft into a solid whose faces graze and cross. That
+    is not a visible failure: the STL still closes, so ``manifold_watertight``
+    passes, but a +X ray through the part comes back with one hit instead of two
+    and the gap check reads a 4.6 mm standoff off the far wall of a fold.
+
+    Smoothing alone would sink the seat into the bumps it averaged over, i.e. into
+    the bone. So the smoothed surface is raised until it clears the samples again
+    -- but by the largest residual *nearby*, not the largest anywhere. A single
+    global lift is set by the worst place on the plate, and the worst place is the
+    proximal end, where the flank falls away steeply and smoothing has most to
+    average over; on the CT mesh that one number spent 1.3 mm of gap at the far
+    end of the plate, where the fit was fine (1.75 mm against a 1.5 mm limit).
+    Taking the local maximum of the residual keeps the envelope property -- the
+    window over any sample includes that sample -- and prices it where it is
+    earned.
+    """
+    smooth = gaussian_filter(seat, sigma=(1.5, 0.5), mode="nearest")
+    lift = maximum_filter(seat - smooth, size=(5, 3), mode="nearest")
+    return smooth + lift
+
+
+def _check_thickness_bounds(thicknesses: np.ndarray, zs: np.ndarray) -> None:
+    """Hold the wall inside the case envelope's declared thickness bounds.
+
+    ``envelope.thickness_bounds_mm`` is a locked input, but no validator reads its
+    ``max``: ``check_min_wall`` only enforces the minimum, so a design can sail
+    past 21/21 on a wall the case says is out of bounds -- which is exactly what
+    the previous 5.5 mm profile did against a stated 4.5 mm maximum. Refusing it
+    here keeps the loop honest about a constraint the examiner happens not to
+    measure, since a plate is manufactured to the case, not to the report.
+    """
+    if np.any(thicknesses <= 0.0):
+        raise ValueError(
+            f"thickness_profile produces a non-positive wall "
+            f"({thicknesses.min():.2f} mm); a plate cannot be thinner than nothing"
+        )
+
+    bounds = (case_io.active_case() or {}).get("envelope", {}).get(
+        "thickness_bounds_mm", {}
+    )
+    lo, hi = bounds.get("min"), bounds.get("max")
+    for limit, worst, what, ok in (
+        (lo, thicknesses.min(), "below", lo is None or thicknesses.min() >= lo - 1e-6),
+        (hi, thicknesses.max(), "above", hi is None or thicknesses.max() <= hi + 1e-6),
+    ):
+        if not ok:
+            at = zs[int(np.argmin(thicknesses) if what == "below" else np.argmax(thicknesses))]
+            raise ValueError(
+                f"thickness_profile reaches {worst:.2f} mm at z={at:.0f} mm, "
+                f"{what} the {limit} mm bound in the case envelope's "
+                f"thickness_bounds_mm. No geometry check enforces this bound, so "
+                f"it is enforced here instead of quietly exceeded."
+            )
+
+
+def _rib_height(ribs: list, z: float, zs: np.ndarray, ys: np.ndarray) -> np.ndarray:
+    """Extra outer-face height from ``ribs`` at station ``z``, lane by lane.
+
+    Ribs are built into the section profile rather than unioned on as separate
+    solids: the loft then stays a single closed shell, so ``manifold_watertight``
+    cannot be broken by a boolean that nearly misses. Each entry is
+    ``{s, length_mm, height_mm, width_mm}`` with an optional ``y_offset_mm``,
+    so a pair of ribs can straddle the screw bores instead of running down the
+    centreline where the bores would cut them in half.
+
+    Both the y and z edges are ramped rather than stepped. A step would put a
+    sharp re-entrant corner on the outer face -- a stress riser in the one place
+    the design is adding material to *reduce* stress -- and would give the loft
+    coincident faces to reconcile.
+    """
+    total = np.zeros_like(ys)
+    z0, z1 = float(zs[0]), float(zs[-1])
+    for rib in ribs:
+        height = float(rib["height_mm"])
+        half_len = float(rib["length_mm"]) / 2.0
+        half_w = float(rib["width_mm"]) / 2.0
+        y0 = float(rib.get("y_offset_mm", 0.0))
+        z_center = z0 + float(rib["s"]) * (z1 - z0)
+
+        ramp_z = max(half_len * 0.25, 1.0)
+        along = np.clip((half_len + ramp_z - abs(z - z_center)) / ramp_z, 0.0, 1.0)
+        if along <= 0.0:
+            continue
+
+        ramp_y = max(half_w * 0.5, 0.5)
+        across = np.clip((half_w + ramp_y - np.abs(ys - y0)) / ramp_y, 0.0, 1.0)
+        total = np.maximum(total, height * along * across)
+    return total
+
+
+def _section_wire(
+    z: float, ys: np.ndarray, inner: np.ndarray, outer: np.ndarray, bevel: float
+) -> cq.Wire:
+    """One cross-section: the offset cortex profile, walled outward along +X.
+
+    The wall is built along X because that is how both validators measure it --
+    ``check_min_wall`` and ``section.py`` read X chords -- so ``outer - inner`` is
+    exactly the thickness they will report. Walling radially instead would make
+    the reported thickness a cosine of the local surface angle, thinnest at the
+    plate edges, which is where the screw heads bear.
+
+    ``bevel`` draws the outer profile in from the plate edge, breaking the sharp
+    lateral corner. It replaces a CadQuery ``.fillet()`` on the lofted edges: on a
+    free-form section the ``|X`` selector no longer picks out the four plan-view
+    corners, and filleting whatever it did pick returned an invalid solid that
+    had lost a third of its volume. Building the relief into the profile keeps it
+    inside the loft, where it cannot fail silently.
+    """
+    ys_out = ys
+    if bevel > 0.0:
+        span = float(ys[-1] - ys[0])
+        b = min(bevel, span / 4.0)
+        ys_out = np.clip(ys, ys[0] + b, ys[-1] - b)
+    points = [cq.Vector(float(x), float(y), z) for x, y in zip(inner, ys)]
+    points += [
+        cq.Vector(float(x), float(y), z) for x, y in zip(outer[::-1], ys_out[::-1])
+    ]
+    points.append(points[0])
+    return cq.Wire.makePolygon(points)
+
+
 def build_implant(params: dict) -> cq.Workplane:
     """Build the implant solid from params. FROZEN SIGNATURE.
 
-    Baseline: flat straight plate, constant thickness, six round screw holes,
-    standing clear of the most protruding point of the bone so that it does not
-    intersect the shaft.
+    A plate whose bone-facing surface is fitted to the cortex station by station,
+    with a wall thickness that follows ``thickness_profile`` along the length and
+    six round screw bores along their planned trajectories.
     """
     _guard_unimplemented(params)
 
@@ -135,36 +391,60 @@ def build_implant(params: dict) -> cq.Workplane:
             f"screw the plate does not reach is a screw that fixes nothing."
         )
 
-    # A flat plate has to clear the most protruding point of the bow, otherwise it
-    # cuts into the shaft. This is exactly why it then gapes at both ends. The
-    # clearance is held at the apex, so the gap only grows from there -- which is
-    # the whole problem a contoured plate solves.
-    #
-    # Seating is measured along the lanes the plate actually covers, not the y=0
-    # centreline alone: on irregular cortex the most protruding point under the
-    # plate is often not on its midline, and seating to the midline would bury
-    # the plate edge in bone.
-    seat_lanes = np.linspace(y_center - width / 2.0, y_center + width / 2.0, N_SEAT_LANES)
-    mount_x = max_surface_x(z0, z1, ys=seat_lanes) + clearance
+    half_width = width / 2.0
+    zs = np.linspace(z0, z1, N_STATIONS)
+    s = (zs - z0) / (z1 - z0)
 
-    plate = (
-        cq.Workplane("YZ")
-        .workplane(offset=mount_x)
-        .moveTo(y_center, z_center)
-        .rect(width, length)
-        .extrude(thickness)
+    # Seat on the cortex itself rather than on the single most protruding point
+    # of it. A flat plate has to clear the apex of the bow and therefore gapes
+    # everywhere else; contouring removes that constraint, which is what turns an
+    # 8.6 mm gap into a fraction of a millimetre.
+    # Sample the cortex once, on lanes spanning the widest station, then read each
+    # station's own lanes out of that grid: the width varies along the length.
+    grid_lanes = np.linspace(y_center - half_width, y_center + half_width, N_SEAT_LANES)
+    seat_grid = _seating_surface(zs, grid_lanes)
+
+    half_widths = 0.5 * _interp_profile(
+        params["width_profile"], s, width, "width_profile"
     )
+    if np.any(half_widths * 2.0 > width + 1e-9):
+        raise ValueError(
+            f"width_profile reaches {2.0 * half_widths.max():.1f} mm, wider than "
+            f"params['width_mm'] ({width:.1f} mm), which is what the seating grid "
+            f"was sampled across. Raise width_mm if the plate really is that wide."
+        )
+    if np.any(half_widths * 2.0 < y_span + hole_d - 1e-9):
+        worst = int(np.argmin(half_widths))
+        raise ValueError(
+            f"width_profile narrows to {2.0 * half_widths[worst]:.1f} mm at "
+            f"z={zs[worst]:.0f} mm, but the screws span {y_span:.1f} mm and each "
+            f"bore needs {hole_d:.1f} mm. A waist that cuts into a bore leaves the "
+            f"screw head bearing on nothing."
+        )
 
-    # Round the four long corners. Edges parallel to X are the plan-view corners.
-    if fillet > 0:
-        plate = plate.edges("|X").fillet(fillet)
+    standoff = clearance + _interp_profile(
+        params["contour_spline"], s, 0.0, "contour_spline"
+    )
+    thicknesses = _interp_profile(
+        params["thickness_profile"], s, thickness, "thickness_profile"
+    )
+    _check_thickness_bounds(thicknesses, zs)
+
+    wires = []
+    for z, hw, row, off, t in zip(zs, half_widths, seat_grid, standoff, thicknesses):
+        lanes = np.linspace(y_center - hw, y_center + hw, N_SECTION_POINTS)
+        inner = np.interp(lanes, grid_lanes, row) + off
+        outer = inner + t + _rib_height(params["ribs"], float(z), zs, lanes)
+        wires.append(_section_wire(float(z), lanes, inner, outer, fillet))
+    plate = cq.Workplane(obj=cq.Solid.makeLoft(wires, ruled=True))
 
     # Screw bores, each along its own planned trajectory. The cutter starts well
     # outside the plate and is long enough to leave it again whatever the angle,
     # so an obliquely angled screw gets a bore that runs all the way through
     # instead of a hole drilled straight down the X axis it does not follow.
-    plate_center = np.array([mount_x + thickness / 2.0, y_center, z_center])
-    diagonal = math.sqrt(length**2 + width**2 + thickness**2)
+    plate_center = np.array([float(seat_grid.mean()), y_center, z_center])
+    depth = float(seat_grid.max() - seat_grid.min()) + float(thicknesses.max())
+    diagonal = math.sqrt(length**2 + width**2 + depth**2)
 
     for screw, entry in zip(screws, entries):
         direction = np.array(screw["direction"], dtype=float)  # unit, via case_io

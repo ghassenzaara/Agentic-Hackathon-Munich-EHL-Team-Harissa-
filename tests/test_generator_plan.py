@@ -94,15 +94,58 @@ def test_screws_wider_than_the_plate_fail_loudly(oblique_case, tmp_path):
     assert "6.0 mm" in message
 
 
-def test_synthetic_case_is_unchanged(tmp_path):
-    """The generalisation must not move the demo case's numbers."""
+def test_demo_case_meets_every_geometry_check(tmp_path):
+    """The demo case must pass, on limits rather than on remembered numbers.
+
+    This used to pin the flat plate's 36.996 g and 8.596 mm gap, i.e. it asserted
+    that the design task had *not* been done: the conformance figure it protected
+    is 5.7x the case's own limit, so the test failed by construction the moment
+    the plate started following the bone. Checking each measurement against the
+    limit the case declares keeps the regression value -- a plate that stops
+    seating, gets heavy or loses a bore still fails here -- without freezing one
+    particular solution."""
     case_path = REPO_ROOT / "inputs" / "case.json"
     _, report = _build_and_validate(case_path, tmp_path)
 
     assert report.by_id("screw_trajectories_clear").value == 6.0
-    # Both figures are quoted in README.md and DOMAIN_KNOWLEDGE.md.
-    assert np.isclose(report.by_id("implant_mass").value, 36.996, atol=0.01)
-    assert np.isclose(report.by_id("bone_conformance_gap").value, 8.596, atol=0.01)
+    failures = [c.id for c in report.checks if c.status == "FAIL"]
+    assert not failures, report.summary()
+
+
+def test_reconstructed_ct_case_transfers(tmp_path):
+    """The same design, against a bone measured from CT rather than an equation.
+
+    The acceptance bone is analytic and smooth; anything downstream of a real scan
+    carries segmentation ripple, and a design tuned only against the clean mesh
+    transfers at 19-20/21. Holding the CT case to the same limits is what stops
+    the loop producing plates that pass and do not transfer.
+
+    Also asserts an even hit count on every +X ray through the part. A jagged seat
+    lofts into a solid whose faces cross: the STL still closes, so
+    ``manifold_watertight`` passes, but rays enter and never leave, and the gap
+    check reads off the far wall of the fold (4.65 mm against a 1.5 mm limit)."""
+    case_path = (
+        REPO_ROOT / "real_cases" / "SYNTH-CT-FEMUR-001" / "generated" / "case.json"
+    )
+    if not case_path.exists():
+        pytest.skip("run real_cases/SYNTH-CT-FEMUR-001/make_phantom.py first")
+
+    _, report = _build_and_validate(case_path, tmp_path)
+    failures = [c.id for c in report.checks if c.status == "FAIL"]
+    assert not failures, report.summary()
+
+    import trimesh
+
+    mesh = trimesh.load(str(tmp_path / "implant.stl"), force="mesh")
+    lo, hi = mesh.bounds
+    zs = np.linspace(lo[2] + 1.0, hi[2] - 1.0, 60)
+    origins = np.column_stack([np.full(zs.size, lo[0] - 10.0), np.zeros(zs.size), zs])
+    _, ray_idx, _ = mesh.ray.intersects_location(
+        ray_origins=origins, ray_directions=np.tile([1.0, 0.0, 0.0], (zs.size, 1))
+    )
+    counts = np.bincount(ray_idx, minlength=zs.size)
+    folded = zs[counts % 2 != 0]
+    assert not folded.size, f"self-intersecting wall at z={np.round(folded, 1)}"
 
 
 def test_seating_uses_the_lanes_the_plate_covers(oblique_case, tmp_path):

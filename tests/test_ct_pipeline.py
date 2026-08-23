@@ -140,17 +140,16 @@ def test_imported_ct_case_runs_the_design_loop(converted, tmp_path):
         text=True,
         check=False,
     )
-    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert completed.returncode == 0, completed.stdout + completed.stderr
     report = Report.load(design_out / "report.json")
 
-    # The plate is built and seated: everything except conformance passes, which
-    # is the same failure the synthetic case has and the one Devin is asked to fix.
+    # What this test owns is the pipeline, so it asserts the DICOM-derived case is
+    # designed against like any other -- not one particular failure. It used to
+    # require conformance to FAIL at 8.596 mm, the flat plate's number, which made
+    # a plate that follows the reconstructed cortex a test failure.
     assert report.by_id("screw_trajectories_clear").status == "PASS"
     assert report.by_id("no_bone_collision").status == "PASS"
-    assert report.by_id("bone_conformance_gap").status == "FAIL"
-
-    # And it agrees with the exact-mesh case to within the reconstruction error.
-    assert abs(report.by_id("bone_conformance_gap").value - 8.596) < 0.5
+    assert [c.id for c in report.checks if c.status == "FAIL"] == []
 
 
 # -- the landmark helper ------------------------------------------------------
