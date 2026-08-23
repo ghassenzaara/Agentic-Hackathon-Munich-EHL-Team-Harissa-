@@ -42,12 +42,19 @@ REQUIRED_FIELDS = (
     "side",
     "approach",
     "coordinate_frame",
-    "footprint_z_mm",
     "screws",
     "keepouts",
     "material",
     "thresholds",
 )
+
+# footprint_z_mm is a length along a shaft, so only the plate family can state
+# one: a patch over a scapular blade or a cranial vault has a surface region,
+# not a z range, and demanding one would exclude exactly the anatomy the patch
+# family exists for.
+PLATE_ONLY_FIELDS = ("footprint_z_mm",)
+
+IMPLANT_FAMILIES = ("plate", "conformal_patch")
 
 REQUIRED_SCREW_FIELDS = ("id", "entry_mm", "direction", "diameter_mm", "length_mm")
 
@@ -115,9 +122,21 @@ def load_plan(path: str | Path) -> dict:
     return plan
 
 
+def implant_family(plan: dict) -> str:
+    """The family the anatomy needs; a plan that says nothing means a plate."""
+    return (plan.get("implant") or {}).get("family", "plate")
+
+
 def validate_structure(plan: dict) -> None:
     """Every required field present and the right shape. Raises PlanError."""
-    missing = [f for f in REQUIRED_FIELDS if f not in plan]
+    family = implant_family(plan)
+    if family not in IMPLANT_FAMILIES:
+        raise PlanError(
+            f"implant.family must be one of {', '.join(IMPLANT_FAMILIES)}, "
+            f"got {family!r}"
+        )
+    required = REQUIRED_FIELDS + (PLATE_ONLY_FIELDS if family == "plate" else ())
+    missing = [f for f in required if f not in plan]
     if missing:
         raise PlanError(
             "surgical plan is missing required field(s): "
@@ -126,13 +145,24 @@ def validate_structure(plan: dict) -> None:
               "invent clinical decisions to fill them in."
         )
 
-    footprint = plan["footprint_z_mm"]
-    if not (isinstance(footprint, (list, tuple)) and len(footprint) == 2):
-        raise PlanError("footprint_z_mm must be [z_start, z_end] in mm")
-    z_start = _as_float(footprint[0], "footprint_z_mm[0]")
-    z_end = _as_float(footprint[1], "footprint_z_mm[1]")
-    if z_end <= z_start:
-        raise PlanError(f"footprint_z_mm must increase: got {z_start} to {z_end}")
+    if family == "plate":
+        footprint = plan["footprint_z_mm"]
+        if not (isinstance(footprint, (list, tuple)) and len(footprint) == 2):
+            raise PlanError("footprint_z_mm must be [z_start, z_end] in mm")
+        z_start = _as_float(footprint[0], "footprint_z_mm[0]")
+        z_end = _as_float(footprint[1], "footprint_z_mm[1]")
+        if z_end <= z_start:
+            raise PlanError(f"footprint_z_mm must increase: got {z_start} to {z_end}")
+    else:
+        region = (plan["implant"] or {}).get("region") or {}
+        if region.get("type") != "screw_span":
+            raise PlanError(
+                "implant.region.type must be 'screw_span' for the conformal_patch "
+                "family -- it is the only region definition this repo builds from, "
+                "and the patch has no footprint to fall back on"
+            )
+        if _as_float(region.get("margin_mm"), "implant.region.margin_mm") <= 0:
+            raise PlanError("implant.region.margin_mm must be a positive length in mm")
 
     if not plan["screws"]:
         raise PlanError("surgical plan lists no screws; the implant has nothing to fix to")
@@ -374,7 +404,13 @@ def validate_against_bone(plan: dict, bone_mesh) -> Report:
         )
     )
 
-    # 3. Footprint lies on the shaft that exists in this mesh.
+    # 3-4. Footprint checks only mean something for a plate: they ask whether a
+    # z range lies on the shaft, and a patch region is bounded by its screws.
+    if implant_family(plan) != "plate":
+        return Report.from_checks(
+            checks, meta={"validator": "surgical_plan", "case_id": plan.get("case_id")}
+        )
+
     z0, z1 = (float(v) for v in plan["footprint_z_mm"])
     bone_z0, bone_z1 = float(bone_mesh.bounds[0][2]), float(bone_mesh.bounds[1][2])
     inside = bone_z0 <= z0 and z1 <= bone_z1

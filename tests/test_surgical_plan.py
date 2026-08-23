@@ -182,3 +182,69 @@ def test_transformed_plan_preserves_relative_geometry(example_plan):
     d_before = np.linalg.norm(before[0] - before[-1])
     d_after = np.linalg.norm(after[0] - after[-1])
     assert np.isclose(d_before, d_after, atol=1e-6)
+
+
+# -- the implant family the plan asks for -------------------------------------
+
+PATCH_PLAN_PATHS = (
+    REPO_ROOT / "real_cases" / "synthetic_patch" / "surgical_plan.json",
+    REPO_ROOT / "real_cases" / "synthetic_scapula" / "surgical_plan.json",
+)
+
+
+@pytest.fixture(params=PATCH_PLAN_PATHS, ids=["cranial", "scapula"])
+def patch_plan(request):
+    return json.loads(request.param.read_text(encoding="utf-8"))
+
+
+def test_patch_plans_are_structurally_valid_without_a_footprint(patch_plan):
+    """A vault or a blade has no shaft to state a footprint_z_mm along."""
+    assert "footprint_z_mm" not in patch_plan
+    assert surgical_plan.implant_family(patch_plan) == "conformal_patch"
+    surgical_plan.validate_structure(patch_plan)
+
+
+def test_plate_family_still_requires_a_footprint(example_plan):
+    plan = dict(example_plan)
+    plan.pop("footprint_z_mm")
+    with pytest.raises(PlanError, match="footprint_z_mm"):
+        surgical_plan.validate_structure(plan)
+
+
+def test_plan_defaults_to_the_plate_family(example_plan):
+    assert surgical_plan.implant_family(example_plan) == "plate"
+
+
+def test_unknown_family_is_rejected_by_name(patch_plan):
+    patch_plan["implant"]["family"] = "hip_stem"
+    with pytest.raises(PlanError, match="hip_stem"):
+        surgical_plan.validate_structure(patch_plan)
+
+
+def test_patch_without_a_region_is_rejected(patch_plan):
+    patch_plan["implant"].pop("region")
+    with pytest.raises(PlanError, match="region"):
+        surgical_plan.validate_structure(patch_plan)
+
+
+def test_patch_with_a_non_positive_margin_is_rejected(patch_plan):
+    patch_plan["implant"]["region"]["margin_mm"] = 0.0
+    with pytest.raises(PlanError, match="margin_mm"):
+        surgical_plan.validate_structure(patch_plan)
+
+
+def test_patch_plan_skips_the_footprint_checks_against_the_bone(patch_plan):
+    """The footprint checks ask about a z range; a patch does not have one."""
+    import trimesh
+
+    bone = trimesh.load(
+        REPO_ROOT / "real_cases"
+        / ("synthetic_patch" if "CRANIAL" in patch_plan["case_id"] else "synthetic_scapula")
+        / "bone.stl"
+    )
+    report = surgical_plan.validate_against_bone(patch_plan, bone)
+
+    assert report.by_id("plan_footprint_within_bone") is None
+    assert report.by_id("plan_screws_within_footprint") is None
+    assert report.by_id("plan_screw_entries_on_bone").status == "PASS"
+    assert report.by_id("plan_screw_trajectories_in_bone").status == "PASS"
