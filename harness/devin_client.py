@@ -12,6 +12,8 @@ import requests
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE_URL = "https://api.devin.ai/v3"
 DEFAULT_ACU_LIMIT = 5
+# Overridable with DEVIN_MODE; set it empty to fall back to the org default.
+DEFAULT_DEVIN_MODE = "fast"
 
 _V3_TERMINAL_STATUS = {"error", "exit", "suspended"}
 _V3_TERMINAL_DETAIL = {
@@ -107,10 +109,19 @@ class DevinClient:
         max_acu_limit: int | None = None,
         platform: str | None = None,
         repos: list[str] | None = None,
+        devin_mode: str | None = None,
     ) -> dict:
         """Start a session, requiring validated structured output when a schema is given."""
         platform = platform or os.environ.get("DEVIN_PLATFORM") or None
+        # One design iteration is a single-file edit against a report the server
+        # already produced, so the cheaper/faster agent mode is the right default:
+        # a slow deliberating turn costs the loop more than it buys the geometry.
+        mode = devin_mode
+        if mode is None:
+            mode = os.environ.get("DEVIN_MODE", DEFAULT_DEVIN_MODE).strip()
         body: dict[str, Any] = {"prompt": prompt}
+        if mode:
+            body["devin_mode"] = mode
         if repos:
             body["repos"] = repos
         if title:

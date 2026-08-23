@@ -16,6 +16,22 @@ def _capture_requests(client: DevinClient, monkeypatch):
     return calls
 
 
+def test_devin_mode_is_overridable_and_can_be_dropped(monkeypatch):
+    client = DevinClient(api_key="cog_test", org_id="org-test")
+    calls = _capture_requests(client, monkeypatch)
+
+    monkeypatch.setenv("DEVIN_MODE", "lite")
+    client.create_session("work")
+    assert calls[-1][2]["json"]["devin_mode"] == "lite"
+
+    client.create_session("work", devin_mode="ultra")
+    assert calls[-1][2]["json"]["devin_mode"] == "ultra"
+
+    monkeypatch.setenv("DEVIN_MODE", "")
+    client.create_session("work")
+    assert "devin_mode" not in calls[-1][2]["json"]
+
+
 def test_v3_uses_org_scoped_paths_and_current_body(monkeypatch):
     client = DevinClient(api_key="cog_test", org_id="org-test")
     calls = _capture_requests(client, monkeypatch)
@@ -40,6 +56,7 @@ def test_v3_uses_org_scoped_paths_and_current_body(monkeypatch):
         "structured_output_required": True,
         "max_acu_limit": 5,
         "platform": "linux",
+        "devin_mode": "fast",
     }
     assert calls[1] == (
         "GET",

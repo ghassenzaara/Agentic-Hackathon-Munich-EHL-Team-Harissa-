@@ -93,6 +93,10 @@ A cloud sandbox cannot reach a loopback URL; set `AUTOIMPLANTS_PUBLIC_URL` to a
 reachable base URL for the live exchange (preflight says so when it is still
 local), and the session's structured output is accepted as a fallback.
 
+Design sessions are created in `fast` mode, because one iteration is a single
+file edit against a report the server already produced. `DEVIN_MODE` overrides
+it (`lite`, `fast`, or empty for the organisation default).
+
 For a one-session integration check, open
 `http://127.0.0.1:8765/?max_iterations=1`; the intake will disclose and enforce a
 5-ACU maximum. The normal page caps each design or surgeon revision cycle at

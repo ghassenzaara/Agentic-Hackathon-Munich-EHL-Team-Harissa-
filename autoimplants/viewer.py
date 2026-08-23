@@ -172,8 +172,15 @@ def iteration_payload(
     stress_ids = set(STRESS_CHECK_IDS) | set(FEA_CHECK_IDS)
     geometry_counts = _status_counts([c for c in checks if c["id"] not in stress_ids])
     stress_counts = _status_counts([c for c in checks if c["id"] in stress_ids])
+    # A solved stress FAIL is a real result, so it cannot read as convergence; a
+    # stress SKIP still can, because a case with no declared load has nothing to
+    # solve and the UI labels that coverage separately.
     geometry_converged = bool(geometry_counts["TOTAL"]) and not (
-        geometry_counts["FAIL"] or geometry_counts["ERROR"] or geometry_counts["SKIP"]
+        geometry_counts["FAIL"]
+        or geometry_counts["ERROR"]
+        or geometry_counts["SKIP"]
+        or stress_counts["FAIL"]
+        or stress_counts["ERROR"]
     )
     defaults = {
         "number": report.iteration,

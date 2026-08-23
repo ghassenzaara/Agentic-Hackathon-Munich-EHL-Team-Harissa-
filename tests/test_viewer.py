@@ -66,6 +66,24 @@ def test_skipped_stress_does_not_block_geometry_convergence(monkeypatch):
     assert "Skipped checks are never included in a passing total." in html
 
 
+def test_solved_stress_failure_blocks_convergence(monkeypatch):
+    """A real FEA FAIL is a result, so it must not read as a converged design."""
+    _patch_mesh_inputs(monkeypatch)
+    geometry = [Check(id=f"geometry_{index}", status=PASS) for index in range(13)]
+    report = Report.from_checks(
+        geometry
+        + [
+            Check(id="fea_max_von_mises", status=FAIL, value=683.9, limit=350.0, unit="MPa"),
+            Check(id="fea_peak_displacement", status=PASS, value=0.4, limit=2.0, unit="mm"),
+        ]
+    )
+
+    payload = viewer.iteration_payload(report)
+
+    assert payload["coverage"]["stress"]["FAIL"] == 1
+    assert payload["geometry_converged"] is False
+
+
 def test_stress_field_reaches_the_browser_with_its_own_scale(tmp_path):
     """A heatmap is only honest if the legend carries the solver's own peak."""
     solid = trimesh.creation.box(extents=(10.0, 4.0, 2.0))
