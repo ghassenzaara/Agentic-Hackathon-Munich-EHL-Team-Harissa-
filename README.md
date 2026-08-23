@@ -49,11 +49,11 @@ PY=.venv/bin/python
 Run one complete baseline iteration:
 
 ```powershell
-& $py -m autoimplants.run --validators geometry,stress
+& $py -m autoimplants.run --validators geometry,fea
 ```
 
 ```bash
-$PY -m autoimplants.run --validators geometry,stress
+$PY -m autoimplants.run --validators geometry,fea
 ```
 
 The baseline intentionally exits with code `1`. It is a generic flat plate
@@ -92,6 +92,10 @@ manufacture a pass.
 A cloud sandbox cannot reach a loopback URL; set `AUTOIMPLANTS_PUBLIC_URL` to a
 reachable base URL for the live exchange (preflight says so when it is still
 local), and the session's structured output is accepted as a fallback.
+
+Design sessions are created in `fast` mode, because one iteration is a single
+file edit against a report the server already produced. `DEVIN_MODE` overrides
+it (`lite`, `fast`, or empty for the organisation default).
 
 For a one-session integration check, open
 `http://127.0.0.1:8765/?max_iterations=1`; the intake will disclose and enforce a
@@ -188,7 +192,7 @@ missing screws or landmarks.
 
 & $py -m autoimplants.run `
   --case real_cases/EXAMPLE-FEMUR-CT-001-OBLIQUE/generated/case.json `
-  --validators geometry,stress `
+  --validators geometry,fea `
   --out out_real
 ```
 
@@ -208,7 +212,7 @@ For the committed synthetic CT phantom:
   --bone real_cases/synthetic_ct/bone.stl
 & $py -m autoimplants.run `
   --case real_cases/SYNTH-CT-FEMUR-001/generated/case.json `
-  --validators geometry,stress `
+  --validators geometry,fea `
   --out out_ct
 & $py -m autoimplants.viewer `
   --case real_cases/SYNTH-CT-FEMUR-001/generated/case.json `

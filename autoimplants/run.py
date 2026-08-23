@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--case", default=str(DEFAULT_CASE), help="case JSON with thresholds")
     ap.add_argument(
         "--validators",
-        default="geometry,stress",
+        default="geometry,fea",
         help=f"comma list from {sorted(REGISTRY)}, or 'all'",
     )
     ap.add_argument("--iteration", type=int, default=0)

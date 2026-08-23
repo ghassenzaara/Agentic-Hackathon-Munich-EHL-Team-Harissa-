@@ -152,7 +152,7 @@ def python_executable(repo_root: str | Path = REPO_ROOT) -> Path:
 
 
 def validate_locally(
-    validators: str = "geometry,stress",
+    validators: str = "geometry,fea",
     repo_root: str | Path = REPO_ROOT,
     out_dir: str | Path = "out",
     iteration: int = 0,

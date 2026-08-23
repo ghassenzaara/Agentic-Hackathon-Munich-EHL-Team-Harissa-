@@ -10,7 +10,7 @@ local normal, the way a surgeon angles them into the thicker bone.
 
     python real_cases/synthetic_scapula/make_case.py
     python -m autoimplants.run --case real_cases/synthetic_scapula/case.json \\
-        --validators geometry,stress
+        --validators geometry,fea
 
 Everything here is fabricated analytic geometry, not patient data: it exists to
 put the conformal-patch family on a surface that can actually break it. Stress is

@@ -44,7 +44,7 @@ Run it exactly like the synthetic case:
 ```bash
 python -m autoimplants.run \
     --case real_cases/<case_id>/generated/case.json \
-    --validators geometry,stress
+    --validators geometry,fea
 ```
 
 ### Why not `inputs/`

@@ -40,3 +40,10 @@ scipy==1.15.3         # connected components, morphological closing
 # Enables mesh decimation in autoimplants/mesh_quality.py. Without it an
 # over-budget mesh is reported rather than reduced.
 fast-simplification==0.1.9
+
+# --- stress solver (autoimplants/fea.py) ------------------------------------
+# Tetrahedralises the exported shell. The wheel links against libGL/libGLU even
+# for headless meshing, so a container also needs libglu1-mesa -- see setup.sh;
+# without it the import fails, the stress check ERRORs, and the loop is handed a
+# validator problem instead of a design one.
+gmsh==4.13.1

@@ -23,6 +23,7 @@ REGISTRY = {
     "stub": "autoimplants.validators.stub",
     "geometry": "autoimplants.validators.geometry",
     "stress": "autoimplants.validators.stress",
+    "fea": "autoimplants.validators.fea",
     "pending_stress": "autoimplants.validators.pending_stress",
 }
 
