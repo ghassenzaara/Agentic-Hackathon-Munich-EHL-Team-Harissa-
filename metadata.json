@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0PXX6WCGYPB6TR1D836W12S",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "UI Updates/Screenshot_2026-08-23_at_10.48.56.png",
+    "autoimplants/viewer.py",
+    "autoimplants/viewer_template.html",
+    "tests/test_viewer.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 250,
+    "cache_creation_tokens": 283080,
+    "cache_read_tokens": 16210234,
+    "output_tokens": 64851,
+    "api_call_count": 125
+  }
+}
