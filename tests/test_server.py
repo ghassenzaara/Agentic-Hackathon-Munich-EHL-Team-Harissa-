@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from autoimplants.contracts import PASS, SKIP, Check, Report
-from autoimplants.server import ReviewRequest, RunManager, RunStore, create_app
+from autoimplants.server import ReviewRequest, RunManager, RunStore, create_app, extract_series
 from autoimplants.validators import pending_stress
 from autoimplants.validators.stress import CHECK_IDS
 
@@ -15,10 +17,12 @@ from autoimplants.validators.stress import CHECK_IDS
 class FakeManager:
     def __init__(self, repo_root: Path, runtime_root: Path):
         self.repo_root = repo_root
+        self.runtime_root = runtime_root
         self.demo_bone_path = repo_root / "inputs" / "bone.stl"
         self.demo_case_path = repo_root / "inputs" / "case.json"
         self.store = RunStore(runtime_root)
         self.created = []
+        self.intakes: list[Path | None] = []
 
     def start(self):
         pass
@@ -29,11 +33,12 @@ class FakeManager:
     def preflight(self):
         return {"ready": True, "errors": []}
 
-    def create_run(self, max_iterations: int):
+    def create_run(self, max_iterations: int, intake: Path | None = None):
         self.created.append(max_iterations)
+        self.intakes.append(intake)
         return self.store.put(
             {
-                "run_id": "run-test",
+                "run_id": f"run-test-{len(self.created)}",
                 "case_id": "SYNTH-FEMUR-001",
                 "status": "queued",
                 "phase": "Waiting",
@@ -75,7 +80,7 @@ def test_upload_requires_demo_fingerprint_and_cost_ack(tmp_path):
             data={"max_iterations": "3", "acu_per_iteration": "5", "cost_ack": "true"},
         )
         assert wrong_bone.status_code == 422
-        assert "surgical-plan case bundle" in wrong_bone.json()["detail"]
+        assert "surgical-plan JSON" in wrong_bone.json()["detail"]
 
         accepted = client.post(
             "/api/runs",
@@ -85,6 +90,117 @@ def test_upload_requires_demo_fingerprint_and_cost_ack(tmp_path):
         assert accepted.status_code == 202
         assert accepted.json()["max_acu"] == 15
         assert manager.created == [3]
+
+
+def _series_zip(slices: int = 3) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr("CASE/DICOM/", "")
+        for index in range(slices):
+            bundle.writestr(f"CASE/DICOM/slice_{index:04d}.dcm", b"DICM-fake-slice")
+    return buffer.getvalue()
+
+
+def test_dicom_series_and_plan_are_staged_for_the_worker(tmp_path):
+    root = _repo(tmp_path)
+    manager = FakeManager(root, tmp_path / "runtime")
+    app = create_app(root, tmp_path / "runtime", tmp_path / "worktrees", manager=manager)
+    plan = json.dumps({"case_id": "REAL-CT-001", "screws": []}).encode()
+
+    with TestClient(app) as client:
+        accepted = client.post(
+            "/api/runs",
+            files={
+                "dicom": ("series.zip", _series_zip(), "application/zip"),
+                "plan": ("surgical_plan.json", plan, "application/json"),
+            },
+            data={"max_iterations": "2", "acu_per_iteration": "5", "cost_ack": "true"},
+        )
+        assert accepted.status_code == 202, accepted.text
+
+    staged = manager.intakes[0]
+    assert staged is not None
+    assert json.loads((staged / "surgical_plan.json").read_text())["case_id"] == "REAL-CT-001"
+    assert len(list((staged / "series").iterdir())) == 3
+    assert not (staged / "series.zip").exists()
+
+
+def test_intake_needs_exactly_one_anatomy_source_and_a_readable_plan(tmp_path):
+    root = _repo(tmp_path)
+    manager = FakeManager(root, tmp_path / "runtime")
+    app = create_app(root, tmp_path / "runtime", tmp_path / "worktrees", manager=manager)
+    ack = {"max_iterations": "1", "acu_per_iteration": "5", "cost_ack": "true"}
+    plan = ("surgical_plan.json", json.dumps({"case_id": "X"}).encode(), "application/json")
+
+    with TestClient(app) as client:
+        both = client.post(
+            "/api/runs",
+            files={
+                "bone": ("bone.stl", b"demo-stl", "model/stl"),
+                "dicom": ("series.zip", _series_zip(), "application/zip"),
+                "plan": plan,
+            },
+            data=ack,
+        )
+        assert both.status_code == 422
+        assert "exactly one anatomy source" in both.json()["detail"]
+
+        neither = client.post("/api/runs", files={"plan": plan}, data=ack)
+        assert neither.status_code == 422
+
+        planless = client.post(
+            "/api/runs",
+            files={"dicom": ("series.zip", _series_zip(), "application/zip")},
+            data=ack,
+        )
+        assert planless.status_code == 422
+        assert "surgical plan" in planless.json()["detail"]
+
+        broken = client.post(
+            "/api/runs",
+            files={
+                "dicom": ("series.zip", _series_zip(), "application/zip"),
+                "plan": ("surgical_plan.json", b"{not json", "application/json"),
+            },
+            data=ack,
+        )
+        assert broken.status_code == 422
+
+        empty = client.post(
+            "/api/runs",
+            files={
+                "dicom": ("series.zip", _empty_zip(), "application/zip"),
+                "plan": plan,
+            },
+            data=ack,
+        )
+        assert empty.status_code == 422
+
+    assert manager.created == []
+    # Every rejection cleans up after itself, so no half-staged upload survives.
+    assert not list((tmp_path / "runtime" / "uploads").glob("*"))
+
+
+def _empty_zip() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr("CASE/", "")
+    return buffer.getvalue()
+
+
+def test_archive_members_cannot_escape_the_intake_directory(tmp_path):
+    archive = tmp_path / "evil.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("../../escaped.dcm", b"DICM")
+        bundle.writestr("nested/deep/slice.dcm", b"DICM")
+    destination = tmp_path / "series"
+
+    assert extract_series(archive, destination) == 2
+    assert sorted(path.name for path in destination.iterdir()) == [
+        "00000_escaped.dcm",
+        "00001_slice.dcm",
+    ]
+    assert not (tmp_path.parent / "escaped.dcm").exists()
 
 
 def test_run_store_round_trips_atomically(tmp_path):
