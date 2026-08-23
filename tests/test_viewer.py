@@ -236,8 +236,8 @@ def test_post_scroll_workspace_uses_local_dimension_design_system(monkeypatch):
     assert '["stress_field.json","Per-vertex von Mises field from the solve"' in html
     assert 'if(m.spec)paintFace(index,true)' in html
     assert 'diagnostic evidence, so it receives a second opaque CAD pass' in html
-    assert 'color:m.name.includes("implant")?"#566f7f":m.color' in html
-    assert viewer.IMPLANT_COLOR == "#566f7f"
+    assert 'color:m.name.includes("implant")?"#c8ccd2":m.color' in html
+    assert viewer.IMPLANT_COLOR == "#c8ccd2"
     assert 'REQUIRED_PLAN_FIELDS=["case_id","bone","side","approach"' in html
     assert 'PLATE_ONLY_PLAN_FIELDS=["footprint_z_mm"]' in html
     assert "internal generated case manifest, not an uploadable surgical plan" in html
@@ -311,9 +311,78 @@ def test_intake_and_evidence_default_to_progressive_disclosure(monkeypatch):
     assert 'No blocking findings in this validated iteration.' in html
     assert '>Validation</button>' in html
     assert '13 enforced geometry checks · indicative linear-static stress solve' in html
-    assert 'Geometry and the indicative stress solve remain clearly separated.' in html
+    assert 'Human oversight reduced to final clinical sign-off.' in html
     assert 'stress results are indicative, skipped checks were not validated' in html
     assert "21/21" not in html
+
+
+def test_story_beats_carry_line_art_diagrams(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page({"case_id": "CASE-8"}, None, _report(geometry_fail=False))
+
+    # Each diagram is one <svg> per node; the shared gradient has to be declared
+    # once for the whole document or url(#devin-ramp) resolves to nothing.
+    assert html.count('id="devin-ramp"') == 1
+    assert html.count('class="story-diagram') == 2
+    assert 'story-diagram--stacked' in html and 'story-diagram--row' in html
+    assert html.count('class="sd-box"') == 2
+    assert 'class="story-kicker"' not in html
+    for caption in ("Femur mesh", "Surgical plan", "Patient bone", "Tailored plate"):
+        assert f"<b>{caption}</b>" in html
+    assert "Rebuilds and re-validates the solid" in html
+    assert "Deploy Cognition Devin" in html
+
+
+def test_cancel_buttons_skip_form_validation(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page({"case_id": "CASE-9"}, None, _report(geometry_fail=False))
+
+    # A <button> in a <form> submits by default, so an un-flagged Cancel runs
+    # HTML5 validation on the reviewer name and the acknowledgement and leaves
+    # the reviewer trapped in the dialog they were trying to abandon.
+    assert html.count('value="cancel" formnovalidate') == 2
+    assert html.count('id="reviewer-name" autocomplete="name" required') == 1
+    assert '<input id="stress-ack" type="checkbox" required>' in html
+
+
+def test_implant_is_shaded_as_metal_not_glass(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page({"case_id": "CASE-10"}, None, _report(geometry_fail=False))
+
+    assert "m.spec?metalTone(nx,ny,nz,l)" in html
+    assert viewer.IMPLANT_COLOR == "#c8ccd2"
+    assert '"#566f7f"' not in html
+
+
+def test_assurance_footnote_resolves_to_a_disclaimer(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page({"case_id": "CASE-11"}, None, _report(geometry_fail=False))
+
+    assert 'href="#page-disclaimer"' in html
+    assert 'id="page-disclaimer"' in html
+    assert "not for clinical use" in html
+
+
+def test_stage_shows_a_wait_state_while_a_turn_is_in_flight(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page(
+        {"case_id": "CASE-12"}, None, _report(geometry_fail=True), server_mode=True
+    )
+
+    # The stage is the only thing a reviewer watches between turns, so the wait
+    # is stated instead of leaving the previous iteration's solid on screen.
+    assert 'id="stage-busy"' in html
+    assert 'setStageBusy(working,BUSY_TITLES[run.status],statusLabel(run))' in html
+    assert 'devin_running:"Devin is designing"' in html
+    # The wait sits in a corner: the validated solid stays readable while Devin works.
+    assert '.workbench .stage-busy{position:absolute;top:14px;right:14px' in html
+    assert '.workbench .stage-card.busy .model-label{opacity:0;pointer-events:none}' in html
+    assert 'Only independently validated geometry appears here.' not in html
 
 
 # -- the browser-side plan gate must agree with the server ---------------------
