@@ -149,6 +149,83 @@ def _interp_profile(
     return np.interp(s, xs, vs)
 
 
+def _moment_thickness(
+    spec: dict, zs: np.ndarray, screw_zs: np.ndarray
+) -> np.ndarray:
+    """Wall thickness following the bending moment of *this* plan's screw span.
+
+    ``thickness_profile`` places section at fixed fractions of the plate length,
+    which is only right while the screws stay where they were when the fractions
+    were picked. They do not: an imported case puts its own six entries wherever
+    the surgeon planned them, and the two stations that decide the hole checks
+    move with them. On a femur segmented from a real CT the inner holes landed at
+    s=0.22 and s=0.78, either side of a profile whose 4.5 mm peak sat between
+    them, and both reported ~410 MPa against a 350 limit on a 3.1 mm wall while
+    the thickest part of the plate carried no hole at all.
+
+    So thickness is derived rather than pinned. The load model is a
+    simply-supported span loaded at mid-footprint -- full moment over the
+    fracture, tapering to zero at the outermost screws -- and the wall rises with
+    that moment: ``t = min_mm + (max_mm - min_mm) * taper**exponent``, with
+    ``min_mm`` what the ends keep once the moment has run out. ``exponent`` = 0.5
+    is the constant-fibre-stress rule (modulus goes as t^2); the default is 1.0
+    because 0.5 overruns the mass budget -- see params.moment_thickness.
+
+    The result is combined with ``thickness_profile`` by taking the larger of the
+    two, so an explicit profile can still add section this rule does not ask for,
+    and cannot silently remove any.
+    """
+    if not spec:
+        return np.zeros(zs.shape)
+
+    t_min = float(spec.get("min_mm", 0.0))
+    t_max = float(spec.get("max_mm", t_min))
+    exponent = float(spec.get("exponent", 0.5))
+    if t_max < t_min:
+        raise ValueError(
+            f"moment_thickness max_mm ({t_max:.2f}) is below min_mm ({t_min:.2f})"
+        )
+
+    z_mid = 0.5 * (float(screw_zs.min()) + float(screw_zs.max()))
+    half_span = 0.5 * (float(screw_zs.max()) - float(screw_zs.min()))
+    if half_span <= 0.0:
+        return np.full(zs.shape, t_max)
+
+    taper = np.clip(1.0 - np.abs(zs - z_mid) / half_span, 0.0, 1.0)
+    return t_min + (t_max - t_min) * taper**exponent
+
+
+def _hole_bosses(spec: dict, zs: np.ndarray, screw_zs: np.ndarray) -> np.ndarray:
+    """Extra wall local to each bore, blended in over ``span_mm``.
+
+    The moment rule above puts the thickest wall at mid-footprint, which is where
+    the moment is -- and on any plan whose screws straddle the fracture, that is
+    the one station with no hole in it. Every reported hole stress is a *net*
+    section amplified by Kt, so the material that decides those checks is the
+    material beside the bore, not 20 mm away from it. This is the correction:
+    a raised pad at each planned entry, tapered out with a cosine so the loft
+    stays smooth and the wall never steps.
+
+    Local because mass is the binding constraint (54.5 of 55 g). Thickening the
+    whole plate to reach the same wall at the bores costs ~4 g the budget does not
+    have; six pads spanning ``span_mm`` each cost ~0.5 g.
+    """
+    if not spec:
+        return np.zeros(zs.shape)
+
+    height = float(spec.get("height_mm", 0.0))
+    span = float(spec.get("span_mm", 0.0))
+    if height <= 0.0 or span <= 0.0:
+        return np.zeros(zs.shape)
+
+    boost = np.zeros(zs.shape)
+    for z0 in screw_zs:
+        d = np.abs(zs - float(z0)) / span
+        local = np.where(d < 1.0, height * np.cos(0.5 * np.pi * d) ** 2, 0.0)
+        boost = np.maximum(boost, local)
+    return boost
+
+
 def _fill_missing(surface: np.ndarray) -> np.ndarray:
     """Replace rays that missed the bone with the nearest lane, then station, that hit.
 
@@ -425,8 +502,23 @@ def build_implant(params: dict) -> cq.Workplane:
     standoff = clearance + _interp_profile(
         params["contour_spline"], s, 0.0, "contour_spline"
     )
-    thicknesses = _interp_profile(
-        params["thickness_profile"], s, thickness, "thickness_profile"
+    moment_spec = params["moment_thickness"]
+    thicknesses = np.maximum(
+        _interp_profile(
+            params["thickness_profile"], s, thickness, "thickness_profile"
+        ),
+        _moment_thickness(moment_spec, zs, entries[:, 2]),
+    )
+    # Pads clipped to ceiling_mm -- the legal wall maximum, above the moment
+    # rule's own peak, so a pad can reach it where the plain wall must not.
+    ceiling = math.inf
+    if moment_spec:
+        ceiling = float(
+            moment_spec.get("ceiling_mm", moment_spec.get("max_mm", math.inf))
+        )
+    thicknesses = np.minimum(
+        thicknesses + _hole_bosses(params["hole_bosses"], zs, entries[:, 2]),
+        ceiling,
     )
     _check_thickness_bounds(thicknesses, zs)
 

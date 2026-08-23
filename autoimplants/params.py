@@ -38,29 +38,56 @@ DEFAULT_PARAMS: dict = {
     "mount_clearance_mm": 0.25,
 
     # --- topology handles ------------------------------------------------------
-    # [[s, t], ...] with s in 0..1 along the plate length, t in mm.
+    # [[s, t], ...] with s in 0..1 along the plate length, t in mm. Empty: the
+    # wall comes from moment_thickness below, which measures the same
+    # section-follows-the-moment shape off the plan rather than off fractions of
+    # the length. Kept as a handle because it is the only way to add section this
+    # rule does not ask for -- the two are combined by taking the larger.
+    "thickness_profile": [],
+    # {"min_mm", "max_mm", "exponent"} -- section follows the bending moment. The
+    # gait moment peaks over the fracture at mid-footprint and tapers to zero at
+    # the outermost screws, and the weakest station of a plate is the one through
+    # a screw hole, so the wall is thickest over the fracture and tapers to the
+    # manufacturing minimum at the ends, where the moment has run out.
     #
-    # Section follows the bending moment. The gait moment peaks over the fracture
-    # at z=190 mm and tapers to zero at the outermost screws, and the weakest
-    # station of a plate is the one through a screw hole, so the wall is thickest
-    # over the fracture and tapers to the manufacturing minimum at the ends,
-    # where the moment has run out.
+    # Measured off this plan's screw span rather than pinned to fractions of the
+    # plate length. The fractions were only ever right for the screws they were
+    # tuned on: a real CT case put its inner holes
+    # at s=0.22 and s=0.78, either side of the profile's peak, and both failed at
+    # ~410 MPa on a 3.1 mm wall while the 4.5 mm part of the plate carried no
+    # hole. See generator._moment_thickness.
     #
-    # The peak is 4.5 mm because that is the maximum in the case envelope's
-    # thickness_bounds_mm, which no validator reads -- see _check_thickness_bounds
-    # in the generator. An earlier profile peaked at 5.5 mm and passed 21/21 on a
-    # wall the case forbids. What replaces that illegal millimetre is width and
-    # ribs: both are section, and both are inside limits that are checked.
-    "thickness_profile": [
-        [0.0, 2.6],
-        [0.0833, 2.6],
-        [0.25, 3.2],
-        [0.4167, 4.5],
-        [0.5833, 4.5],
-        [0.75, 3.2],
-        [0.9167, 2.6],
-        [1.0, 2.6],
-    ],
+    # exponent 1.0: wall proportional to the moment. Constant fibre stress would
+    # want 0.5 (modulus goes as t^2), and it is the better-conditioned design in
+    # isolation, but it holds the wall thick far out along the span and lands at
+    # 57.4 g against the 55 g budget. 1.0 spends the mass where the moment is.
+    #
+    # ceiling_mm 4.5 is the maximum in the case envelope's thickness_bounds_mm,
+    # which no validator reads (see _check_thickness_bounds -- an earlier design
+    # passed 21/21 on a 5.5 mm wall the case forbids). max_mm 3.6 is below it on
+    # purpose: the plain wall stops there and the remaining legal millimetre is
+    # spent by hole_bosses, at the bores, where the failing checks are.
+    # min_mm 2.4 at the ends -- the seat's curvature means the measured x-chord
+    # comes out ~0.55 mm above nominal, so this reports 2.97 against the 2.5 mm
+    # min_wall_mm floor.
+    "moment_thickness": {
+        "min_mm": 2.4, "max_mm": 3.6, "exponent": 1.0, "ceiling_mm": 4.5,
+    },
+    # {"height_mm", "span_mm"} -- a raised pad at every planned bore.
+    #
+    # The moment rule puts its thickest wall at mid-footprint, which on a plan
+    # whose screws straddle the fracture is the one station with no hole in it,
+    # while the checks that fail are net-section-plus-Kt *at* the bores. So the
+    # last millimetre of legal wall is spent locally: +1.2 mm at each entry,
+    # cosine-tapered out over 10 mm and clipped at ceiling_mm, which puts the
+    # thickest legal section exactly at the six holes.
+    #
+    # On the real-CT case this is the difference between failing three hole checks
+    # at 362-375 MPa and passing at 327. span_mm is what it costs: the same pads
+    # tapered over 14 mm instead of 10 report 1.8 MPa less and 1.7 g more, and mass
+    # is the binding constraint. 10 mm is a little over two bore diameters, so the
+    # pad is spent beside the hole rather than between holes.
+    "hole_bosses": {"height_mm": 1.2, "span_mm": 10.0},
     # [[s, width_mm], ...] -- the plate is waisted rather than narrow.
     #
     # perforating_vessel_bundle is a 6 mm sphere at y=14.8, z=190: it blocks width
@@ -158,5 +185,10 @@ def check_params(params: dict) -> list[str]:
         v = params.get(key)
         if v is not None and not isinstance(v, list):
             problems.append(f"{key} must be a list, got {type(v).__name__}")
+
+    for key in ("moment_thickness", "hole_bosses"):
+        spec = params.get(key)
+        if spec is not None and not isinstance(spec, dict):
+            problems.append(f"{key} must be a dict, got {type(spec).__name__}")
 
     return problems
