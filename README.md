@@ -1,6 +1,5 @@
 
-# AutoImplants
-<img src="docs/devin-logo.png" width="78" align="right" alt="Cognition Devin">
+# <img src="docs/devin-logo.png" width="78" align="right" alt="Cognition Devin">
 
 # AutoImplants
 
