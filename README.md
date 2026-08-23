@@ -244,8 +244,10 @@ region, not a z range along an axis, and the intake asks for one only from the
 ```
 
 `real_cases/synthetic_patch/` is the cranial equivalent. Both are uploadable
-through the UI as-is (`bone.stl` + `surgical_plan.json`), and both report stress
-as `SKIP`: neither plan declares a load case.
+through the UI as-is (`bone.stl` + `surgical_plan.json`), and both declare a load
+case, so both are solved for real and carry a stress heatmap. The cranial one
+passes; the scapula one is over its stress, deflection and wall limits, which is
+what hands it to a design iteration.
 
 All DICOM and generated case artifacts are gitignored. Never add patient
 imaging to this repository. The generated flat baseline is expected to report

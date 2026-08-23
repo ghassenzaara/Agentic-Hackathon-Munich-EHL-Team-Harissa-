@@ -248,3 +248,14 @@ def test_patch_plan_skips_the_footprint_checks_against_the_bone(patch_plan):
     assert report.by_id("plan_screws_within_footprint") is None
     assert report.by_id("plan_screw_entries_on_bone").status == "PASS"
     assert report.by_id("plan_screw_trajectories_in_bone").status == "PASS"
+
+
+def test_patch_plans_declare_a_load_and_what_to_judge_it_against(patch_plan):
+    """Without both, the FEA checks SKIP and the case gets no stress at all."""
+    kinds = {lc["type"] for lc in patch_plan["load_cases"]}
+    assert kinds == {"axial", "bending"}
+    assert all(lc.get("basis") for lc in patch_plan["load_cases"]), (
+        "a declared load with no stated basis is a number nobody can argue with"
+    )
+    assert patch_plan["thresholds"]["max_stress_MPa"] > 0.0
+    assert patch_plan["thresholds"]["max_deflection_mm"] > 0.0

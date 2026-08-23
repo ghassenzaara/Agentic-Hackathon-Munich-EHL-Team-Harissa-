@@ -60,8 +60,15 @@ from scipy.sparse.linalg import factorized
 # through the wall is the minimum that can represent bending through it at all;
 # below that a Tet4 mesh reports a wall as a membrane and loses the peak.
 ELEMENTS_THROUGH_WALL = 2.0
-# Nodes within this multiple of a screw radius count as belonging to that bore.
+# Nodes within this multiple of the bore radius count as belonging to that bore.
 BORE_CAPTURE = 1.35
+# How much wider than the screw a drilled bore is allowed to be measured as. A
+# generator drills the hole its own params ask for, not the screw's diameter --
+# the patch family clears a 4.5 mm hole for a 2.4 mm screw -- and the measured
+# radius is trusted up to this factor. Past it the axis is more likely missing the
+# part than passing through a very loose hole, so the screw radius is used and the
+# solve reports an unrestrained part rather than restraining a ring of nothing.
+BORE_SLACK = 3.0
 # Each uniform refinement multiplies the element count by eight, so refinement is
 # capped two ways: a step count, and an element budget it must not overshoot. The
 # budget is what keeps the direct factorisation quick and inside memory -- ~25k
@@ -309,6 +316,19 @@ def bore_nodes(nodes: np.ndarray, screw: dict, margin_mm: float = 0.0) -> np.nda
     distance from that axis within the drilled length -- the same description the
     generator drilled from, which keeps the load path tied to the plan rather than
     to whatever the mesh happens to look like.
+
+    The radius is measured off the mesh -- the closest material to the axis is the
+    bore wall -- rather than taken from the screw, because a generator drills the
+    hole its own params call for and a bore several times the screw's radius still
+    has to resolve to nodes.
+
+    There is no lower bound along the axis, only the drilled depth as an upper one.
+    Both generators cut a through-cylinder spanning the whole part, so material
+    within a radius of the axis *is* bore wall wherever it sits. Cutting off just
+    behind the entry point instead would work for a plate, which the entry passes
+    through, but not for a patch standing several millimetres off the bone: its
+    bores lie entirely on the far side of the entry, so every screw resolved to
+    zero nodes and the solve reported the part as unrestrained.
     """
     entry = np.asarray(screw["entry_mm"], dtype=float)
     direction = np.asarray(screw["direction"], dtype=float)
@@ -319,10 +339,15 @@ def bore_nodes(nodes: np.ndarray, screw: dict, margin_mm: float = 0.0) -> np.nda
     along = offset @ direction
     radial = np.linalg.norm(offset - along[:, None] * direction, axis=1)
     length = float(screw.get("length_mm", 0.0)) or np.inf
-    reach = BORE_CAPTURE * radius + margin_mm
-    return np.flatnonzero(
-        (radial <= reach) & (along >= -reach) & (along <= length + margin_mm)
-    )
+    within_depth = along <= length + margin_mm
+
+    drilled = radius
+    if within_depth.any():
+        measured = float(radial[within_depth].min())
+        if radius <= measured <= BORE_SLACK * radius:
+            drilled = measured
+    reach = BORE_CAPTURE * drilled + margin_mm
+    return np.flatnonzero((radial <= reach) & within_depth)
 
 
 def load_path(
