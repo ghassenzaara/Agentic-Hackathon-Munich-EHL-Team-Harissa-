@@ -1,12 +1,12 @@
 # Data notes — what is actually in `src/data`, verified by inspection
 
 Everything below was checked against the downloaded files, not read off a
-portal page. Where it contradicts `../../resources.md`, this file is right.
+portal page.
 
-## Corrections to resources.md
+## Findings
 
-1. **TotalSegmentator has no tibia.** `resources.md` says "117 structures
-   incl. tibia". It does not. The most distal bone in the v2 label set is
+1. **TotalSegmentator has no tibia**, despite portal claims of "117 structures
+   incl. tibia". The most distal bone in the v2 label set is
    `femur_left` / `femur_right` (75/76); the list ends at ribs, sternum and
    costal cartilages. Tibia lives in TotalSegmentator's separate
    `appendicular_bones` subtask, which is **not part of this 1228-CT
@@ -19,16 +19,15 @@ portal page. Where it contradicts `../../resources.md`, this file is right.
 2. **MedShapeNet is not a usable programmatic source right now.** Its Python
    API serves only "showcase" samples from a MinIO bucket; the bulk archive
    is waiting on storage (the maintainers' own README says so). The portal
-   responds, but plan on manual download at most. `resources.md` already
-   flags the empty Hugging Face mirror; the API is the same story.
+   responds, but plan on manual download at most. The Hugging Face mirror is
+   empty; the API is the same story.
 
 3. **The shape models are MATLAB `.mat`, and all the dataset's own code is
    MATLAB** (GIBBON, geom3d, export_fig). That is not a blocker — see below —
    but nothing in the dataset runs as shipped without MATLAB.
 
-4. **`paed_ssm` is account-gated, not merely "not yet pulled".**
-   `resources.md` called it "likely a near drop-in for `fetch_ssm_tibia.sh`".
-   It is not. `ssm_tibia` downloads anonymously from **figshare**; `paed_ssm`
+4. **`paed_ssm` is account-gated, not merely "not yet pulled", and is not a
+   near drop-in for `fetch_ssm_tibia.sh`.** `ssm_tibia` downloads anonymously from **figshare**; `paed_ssm`
    exists only on **SimTK**, whose `frs/download_confirm.php` redirects to
    `/account/login.php`. No figshare or Zenodo mirror exists (both searched via
    their APIs). It needs a free SimTK account and a scraped per-session
@@ -68,9 +67,8 @@ Code/                            MATLAB SSM construction + supplementary deps
 
 Two small snags: the participant CSV has **32 rows for 30 cases** — ids
 `134065` and `172501` have no segmentation folder, so join on the case dirs,
-not the CSV. And the CSV has **no sex column**, so the 20M/10F split quoted
-in `resources.md` cannot be recovered from the data itself (it is in the
-paper).
+not the CSV. And the CSV has **no sex column**, so the 20M/10F split cannot
+be recovered from the data itself (it is in the paper).
 
 ## The shape model, read from Python — verified working
 

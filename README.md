@@ -86,8 +86,8 @@ guard itself.
 .venv/bin/python -m harness.guard <base-sha>                 # audit a candidate range
 ```
 
-`smoke` and `loop` take `--dry-run` to skip the API entirely. Credentials and
-RBAC: `devin-api-setup.md`.
+`smoke` and `loop` take `--dry-run` to skip the API entirely. Credentials go in
+`.env` (see `.env.example`): a Devin service-user API key and the organization ID.
 
 ## Commands
 
@@ -201,7 +201,7 @@ real_cases/              Ready-made inputs
 inputs/                  Default case used by `run`
 tests/                   224 tests
 prompts/                 Agent instructions
-docs/, agent/            Notes and agent skills
+docs/                    Notes
 solution_code/, src/     Experimental gmsh/CalculiX lane — optional, see pixi.toml
 ```
 
