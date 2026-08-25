@@ -45,3 +45,11 @@ real_cases/synthetic_scapula/bone.stl
 # OS and personal scratch
 .DS_Store
 my_comments.md
+
+# Local agent/editor tooling — never commit installed skills or hooks
+.agents/
+.claude/
+.codex/
+.entire/
+agent/
+skills-lock.json

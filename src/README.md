@@ -1,9 +1,7 @@
 # src — the resources this build runs on
 
-Collected from [../resources.md](../resources.md), downloaded, checksum-verified
-and inspected. Read [refs/DATA_NOTES.md](refs/DATA_NOTES.md) before trusting
-anything in the parent doc — three of its claims turned out to be wrong, one
-of them load-bearing.
+Downloaded, checksum-verified and inspected. Read
+[refs/DATA_NOTES.md](refs/DATA_NOTES.md) for the verified inventory.
 
 ## Layout
 
@@ -19,7 +17,7 @@ src/
 │   └── fetch_totalsegmentator_lite.sh  secondary; --with-images for the 22.6 GB
 │
 ├── refs/
-│   ├── DATA_NOTES.md           verified inventory + corrections to resources.md
+│   ├── DATA_NOTES.md           verified inventory
 │   └── CITATIONS.md            CC-BY attribution, a licence condition
 │
 └── data/                       gitignored (3.2 GB: 2.0 GB extracted + 1.3 GB archives)
@@ -47,7 +45,6 @@ cheap.
 | CalculiX `ccx` | **installed** — conda-forge 2.23, part of the locked env |
 | ASTM F382 | paywalled, not obtained — output stays "F382-style" |
 | PeerJ paper PDF | 403 to scripted fetch; open access in a browser |
-| Devin API key | still pending, see [../devin-api-setup.md](../devin-api-setup.md) |
 
 ## Quick start
 

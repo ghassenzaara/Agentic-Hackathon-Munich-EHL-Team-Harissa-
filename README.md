@@ -1,3 +1,6 @@
+
+# <img src="docs/devin-logo.png" width="78" align="right" alt="Cognition Devin">
+
 # AutoImplants
 
 An autonomous engineering loop for patient-specific orthopedic fixation plates,
@@ -29,302 +32,188 @@ the validated analytical report.
 
 ## Quick start
 
-Python 3.12 is required because the CadQuery/OCP stack is pinned for it.
-
-Windows PowerShell:
-
-```powershell
-.\setup.ps1
-$py = ".\.venv\Scripts\python.exe"
+```bash
+.venv/bin/python -m autoimplants.run --validators geometry
 ```
 
-Linux, macOS, WSL, or Git Bash:
+Writes to `out/`:
+
+| File | Contents |
+| --- | --- |
+| `implant.step` | CAD solid |
+| `implant.stl` | mesh the checks are measured on |
+| `report.json` | every check: value, limit, location |
+
+Exit code is `0` when all checks pass, `1` when any fails.
+
+Three validators are available; run any subset.
 
 ```bash
-bash setup.sh
-PY=.venv/bin/python
-[ -x "$PY" ] || PY=.venv/Scripts/python.exe
+.venv/bin/python -m autoimplants.run --validators geometry,stress,fea
 ```
 
-Run one complete baseline iteration:
+| Validator | Speed | What it does |
+| --- | --- | --- |
+| `geometry` | ~8 s | Size, wall thickness, mass, screw paths, no-go zones |
+| `stress` | fast | Analytical beam-bending estimate, not FEA |
+| `fea` | slow | Linear-elastic finite element solve |
 
-```powershell
-& $py -m autoimplants.run --validators geometry,fea
+## The loop
+
+`run` scores one design. The loop is what makes an agent fix the ones that fail.
+
 ```
+run  ->  report.json  ->  Devin edits generator.py + params.py  ->  run  ->  ...
+```
+
+Every failing check carries its value, its limit and an `(x, y, z)`, which is
+the entire input the agent needs. It edits, pushes a branch, and the harness
+re-validates that branch itself rather than trusting what the session claims.
+
+**Why an agent and not a parameter sweep.** The thresholds are set so that no
+legal constant-thickness parameter combination passes. Reaching green requires a
+geometry change — contouring, redistributing section, adding ribs, turning a
+hole into a slot. `build_implant()` raises if a topology flag is set without the
+geometry behind it, so the agent cannot pass by flipping a label.
+
+**What it may touch.** `harness/guard.py` is an allowlist: generator, parameters,
+export, and iteration records. Never anatomy, thresholds, validators, or the
+guard itself.
 
 ```bash
-$PY -m autoimplants.run --validators geometry,fea
+.venv/bin/python -m harness.smoke --acu-limit 5              # prove the path end to end
+.venv/bin/python -m harness.loop --max-iterations 3 --acu-limit 5 --branch devin/design
+.venv/bin/python -m harness.guard <base-sha>                 # audit a candidate range
 ```
 
-The baseline intentionally exits with code `1`. It is a generic flat plate
-that should fail bone conformance and stress checks; that structured failure is
-the starting signal for the autonomous design loop. A crash or missing artifact
-is a real failure. A report that says `FAIL` is the expected baseline result.
+`smoke` and `loop` take `--dry-run` to skip the API entirely. Credentials go in
+`.env` (see `.env.example`): a Devin service-user API key and the organization ID.
 
-The command writes:
+## Commands
 
-- `out/implant.step` — CAD deliverable;
-- `out/implant.stl` — measured validation mesh;
-- `out/report.json` — machine-readable verdict.
+| Command | Purpose |
+| --- | --- |
+| `-m autoimplants.run` | Build one design and validate it |
+| `-m autoimplants.server` | Local web app on `127.0.0.1:8765` — upload, run, review in 3D |
+| `-m autoimplants.import_case --case P --bone B` | Turn your own mesh + plan into a runnable case |
+| `-m autoimplants.dicom_to_mesh --dicom-dir D --out M` | CT scan folder to bone mesh |
+| `-m autoimplants.viewer` | Render a report as one standalone HTML file |
 
-Start the live Devin workflow:
-
-```powershell
-& $py -m autoimplants.server
-# open http://127.0.0.1:8765
-```
-
-The local server takes the scan plus the surgeon's plan, shows the maximum ACU
-spend, and streams only independently validated iterations into the 3D viewer.
-It executes queued cases serially and stores recovery state under
-`.autoimplants-runtime/`. The browser never receives the Devin API key.
-
-No Git is involved in a design iteration. Each case gets its own workspace
-directory copied from this checkout, and the design agent is handed the current
-contents of `autoimplants/generator.py`, `params.py` and `export.py` plus one
-job URL (`/api/patch/{token}`). It POSTs back whole files — never diffs, never a
-commit — the server writes them into that workspace, runs the validators against
-the patient's own case, and serves the resulting report back on the same URL for
-the next iteration. Any other path is refused before it reaches the workspace,
-so validators, thresholds, anatomy and the surgical plan cannot be edited to
-manufacture a pass.
-
-A cloud sandbox cannot reach a loopback URL; set `AUTOIMPLANTS_PUBLIC_URL` to a
-reachable base URL for the live exchange (preflight says so when it is still
-local), and the session's structured output is accepted as a fallback.
-
-Design sessions are created in `fast` mode, because one iteration is a single
-file edit against a report the server already produced. `DEVIN_MODE` overrides
-it (`lite`, `fast`, or empty for the organisation default).
-
-For a one-session integration check, open
-`http://127.0.0.1:8765/?max_iterations=1`; the intake discloses and enforces the
-per-turn maximum it will authorize, and the normal page caps a design or surgeon
-revision cycle at three such sessions. That per-turn limit is 20 ACU by default
-and `AUTOIMPLANTS_ACU_PER_ITERATION` overrides it: a session that reaches its
-limit is suspended mid-edit with `usage_limit_exceeded` and posts nothing back,
-so a cap set too low costs the iteration rather than saving it.
-
-Build the offline review-only page:
-
-```powershell
-& $py -m autoimplants.viewer
-Start-Process .\out\viewer.html
-```
+## Web app
 
 ```bash
-$PY -m autoimplants.viewer
-# open out/viewer.html in a browser
+.venv/bin/python -m autoimplants.server
 ```
 
-The offline file previews geometry but cannot start Devin. Geometry and stress
-coverage are always reported separately, so a `SKIP` can never be presented as
-a passing check. To attach evidence from a Devin iteration manually:
+Open <http://127.0.0.1:8765>. Drop in a bone `.stl` or a zipped DICOM series plus
+a plan `.json`, watch iterations arrive in a 3D timeline, and download the STEP,
+STL and report.
 
-```powershell
-& $py -m autoimplants.viewer `
-  --rationale "Contour the plate along the bowed shaft" `
-  --commit-sha 0123456789abcdef `
-  --session-url https://app.devin.ai/sessions/example `
-  --topology-changed
-```
-
-## Verify the project
-
-```powershell
-& $py -m harness.test_all
-```
-
-On Linux/macOS, direct pytest is also available:
+It starts and serves fine with no credentials — you can upload, preview meshes
+and read past runs. Credentials are only needed to *start* an agent run:
 
 ```bash
-$PY -m pytest -q
+cp .env.example .env       # add DEVIN_API_KEY and DEVIN_ORG_ID, then restart
 ```
 
-The grouped runner is the portable default. It uses a workspace-local temp
-directory and keeps the SimpleITK imaging runtime out of the OpenCASCADE CAD
-process; some Windows builds otherwise access-violate during interpreter
-shutdown after printing a fully passing pytest result.
+`.env` is read automatically at startup; you do not need to export it yourself.
+`/api/preflight` reports exactly what is missing.
 
-Useful fast checks:
-
-```powershell
-& $py -m autoimplants.run --validators stub --no-build
-& $py -m harness.smoke --dry-run
-```
-
-## Run the Devin path
-
-The client uses the current organization-scoped Devin v3 API.
-
-1. Copy `.env.example` to `.env`.
-2. Add the `cog_...` service-user key and `org_...` organization ID.
-3. Give the service user session permissions and keep the ACU cap small first.
-4. Prove cloning, setup, validation, commit, and push with the smoke test.
-
-```powershell
-Copy-Item .env.example .env
-# edit .env, then:
-& $py -m harness.smoke --acu-limit 5
-```
-
-Once smoke passes, use the localhost application above. The CLI harness remains
-available for headless operation:
-
-```powershell
-& $py -m harness.loop --max-iterations 3 --acu-limit 5 --branch devin/design
-```
-
-The loop validates locally, starts one Devin session per failed iteration,
-requires structured output, fetches the pushed branch, rejects changes outside
-the allowlist, and independently validates the resulting commit. A timeout,
-approval pause, or missing structured result stops safely instead of scoring a
-stale checkout. See `devin-api-setup.md` for credential and RBAC details.
-
-## External mesh and surgical plan
-
-The importer accepts a mesh plus an explicit surgical plan. It recovers the
-repository frame from landmarks, gates mesh scale/components/watertightness,
-checks the plan against the bone, and writes a runnable case without inventing
-missing screws or landmarks.
-
-```powershell
-& $py -m autoimplants.import_case `
-  --case real_cases/example/surgical_plan_oblique.json `
-  --bone real_cases/example/bone.stl
-
-& $py -m autoimplants.run `
-  --case real_cases/EXAMPLE-FEMUR-CT-001-OBLIQUE/generated/case.json `
-  --validators geometry,fea `
-  --out out_real
-```
-
-Bash uses the same arguments with `\` line continuations. Full schemas and
-patient-data rules are in `docs/real-ct-cases.md`.
-
-For the committed synthetic CT phantom:
-
-```powershell
-& $py real_cases/synthetic_ct/make_ct.py
-& $py -m autoimplants.dicom_to_mesh `
-  --dicom-dir real_cases/synthetic_ct/series `
-  --bone femur `
-  --out real_cases/synthetic_ct/bone.stl
-& $py -m autoimplants.import_case `
-  --case real_cases/synthetic_ct/surgical_plan.json `
-  --bone real_cases/synthetic_ct/bone.stl
-& $py -m autoimplants.run `
-  --case real_cases/SYNTH-CT-FEMUR-001/generated/case.json `
-  --validators geometry,fea `
-  --out out_ct
-& $py -m autoimplants.viewer `
-  --case real_cases/SYNTH-CT-FEMUR-001/generated/case.json `
-  --implant out_ct/implant.stl `
-  --report out_ct/report.json `
-  --out out_ct/viewer.html
-```
-
-### Uploading a non-long-bone case
-
-The plan chooses the implant family, so anatomy without a shaft is a plan
-difference, not a code path: state
-
-```json
-"implant": {"family": "conformal_patch", "region": {"type": "screw_span", "margin_mm": 15.0}}
-```
-
-and omit `footprint_z_mm` -- a cranial vault or a scapular blade has a surface
-region, not a z range along an axis, and the intake asks for one only from the
-`plate` family. Two ready cases are committed:
-
-```powershell
-& $py -m autoimplants.import_case `
-  --case real_cases/synthetic_scapula/surgical_plan.json `
-  --bone real_cases/synthetic_scapula/bone.stl
-& $py -m autoimplants.run `
-  --case real_cases/SYNTH-SCAPULA-001/generated/case.json `
-  --validators geometry,fea
-```
-
-`real_cases/synthetic_patch/` is the cranial equivalent. Both are uploadable
-through the UI as-is (`bone.stl` + `surgical_plan.json`), and both declare a load
-case, so both are solved for real and carry a stress heatmap. The cranial one
-passes; the scapula one is over its stress, deflection and wall limits, which is
-what hands it to a design iteration.
-
-All DICOM and generated case artifacts are gitignored. Never add patient
-imaging to this repository. The generated flat baseline is expected to report
-`FAIL`; success here means every stage completed and produced its artifacts.
-
-## Architecture
-
-```text
-bone mesh + case + surgical plan
-              |
-              v
-   CadQuery generator.py  <--- the guarded code Devin edits
-              |
-              +--> implant.step
-              +--> implant.stl
-                        |
-                        v
-          geometry + analytical stress validators
-                        |
-                        v
-                  report.json
-                   /       \
-                  v         v
-          offline viewer   Devin iteration
-                              |
-                              v
-                    allowlist guard + recheck
-```
-
-Key paths:
-
-| Path | Purpose |
-|---|---|
-| `autoimplants/generator.py` | Guarded parametric design surface |
-| `autoimplants/run.py` | One generate/export/validate iteration |
-| `autoimplants/validators/` | Geometry and analytical stress verdicts |
-| `autoimplants/import_case.py` | Mesh and plan to normalized runnable case |
-| `autoimplants/dicom_to_mesh.py` | Optional raw DICOM ingestion |
-| `autoimplants/viewer.py` | Self-contained review HTML generator |
-| `harness/` | Devin API client, smoke test, loop, and edit guard |
-| `inputs/` | Locked synthetic anatomy and thresholds |
-| `tests/` | Runnable path regression suite |
-| `solution_code/verify/` | Experimental gmsh/CalculiX verifier scaffold |
-| `src/` and `pixi.toml` | Optional dataset and FEA environment work |
-
-## Why an agent instead of scalar optimization
-
-The synthetic thresholds are calibrated so no legal constant-thickness scalar
-combination passes. A passing design needs a geometry/code change such as
-contouring, local section redistribution, ribs, or hole-to-slot conversion.
-`build_implant()` raises when a topology flag is set without its geometry being
-implemented, so the agent cannot pass by merely toggling a label.
-
-The guard is an allowlist: Devin may edit the generator/parameter/export design
-surface and write iteration records, but it may not alter anatomy, thresholds,
-validators, or the guard itself. Run `python -m harness.guard <base-sha>` to
-audit a candidate range.
-
-## Optional FEA/data lane
-
-`pixi.toml` captures the separate gmsh/CalculiX environment assembled by the
-other prototype. Its current lock targets Linux and macOS; it is not required
-for the Windows demo above.
-
-On a supported machine with pixi:
+### Letting other people reach it
 
 ```bash
-pixi install
-pixi run doctor
-# large optional download (~550 MB):
-pixi run setup
+.venv/bin/python -m autoimplants.server --host 0.0.0.0 --port 8765
 ```
 
-`pixi run setup` verifies the solver and downloads/samples the tibia SSM. Keep
-this lane separate from the hackathon acceptance verdict until a tested adapter
-turns the exported implant into a tetrahedral model with defensible boundary
-conditions and maps its result back into `autoimplants.contracts.Report`.
+Others on the same network then use `http://<your-ip>:8765`.
+
+> **There is no login.** Every route is open, so anyone who can reach the port
+> can start runs, spend ACUs and read every case on the box. Use it on a trusted
+> network only, and do not put it on the public internet.
+
+A cloud agent cannot POST back to a loopback address. Give it a reachable base
+URL when you tunnel:
+
+```bash
+.venv/bin/python -m autoimplants.server --public-url https://<tunnel-host>
+```
+
+### Sending someone a result without a server
+
+```bash
+.venv/bin/python -m autoimplants.viewer \
+  --case inputs/case.json --implant out/implant.stl \
+  --report out/report.json --out out/viewer.html
+```
+
+One self-contained HTML file — geometry, report and 3D viewer inlined, no
+network. Email it, attach it to a PR, or open it offline.
+
+## Ready-made inputs
+
+```bash
+ls real_cases/example        # synthetic femur + four plans
+ls real_cases/synthetic_ct   # DICOM fixture for the CT path
+```
+
+## Tests
+
+```bash
+.venv/bin/python -m pytest   # 224 tests
+```
+
+## Repo tree
+
+```
+autoimplants/            The library
+  run.py                 One iteration: generate -> export -> validate -> report
+  generator.py           The parametric CAD model (the file the agent edits)
+  params.py              Tunable design parameters
+  patch.py               Anatomy-agnostic implant family: a shell over a bone region
+  export.py              STEP/STL writers
+  contracts.py           Frozen Report/Check types shared by every component
+  validators/            geometry.py, stress.py, fea.py + registry
+  bone.py                Bone surface sampling
+  landmarks.py           Propose a coordinate frame from a mesh
+  section.py             Cross-section properties of the exported solid
+  mesh_quality.py        Gate for meshes arriving from outside the repo
+  self_intersection.py   Does the mesh pass through itself?
+  surgical_plan.py       Plan schema and its checks
+  case_io.py             Per-case file resolution
+  fea.py                 Linear-elastic FE solver
+  dicom_to_mesh.py       CT series -> mesh
+  import_case.py         External mesh + plan -> runnable case
+  viewer.py              Report -> standalone HTML
+  viewer_template.html
+  assets/                Fonts and the demo femur
+
+harness/                 Agent driver
+  loop.py                Iterate: run -> report -> agent -> repeat
+  devin_client.py        API client
+  guard.py               Allowlist of what the agent may change
+  smoke.py, test_all.py
+
+real_cases/              Ready-made inputs
+  example/               Synthetic femur + plans
+  synthetic_ct/          DICOM fixture
+  synthetic_patch/, synthetic_scapula/
+
+inputs/                  Default case used by `run`
+tests/                   224 tests
+prompts/                 Agent instructions
+docs/                    Notes
+solution_code/, src/     Experimental gmsh/CalculiX lane — optional, see pixi.toml
+```
+
+## Optional solver lane
+
+`solution_code/` and `src/` hold a separate gmsh/CalculiX environment, pinned in
+`pixi.toml` (Linux and macOS). Not needed for anything above.
+
+```bash
+pixi install && pixi run doctor
+```
+
+## License
+
+MIT. See `LICENSE`.
