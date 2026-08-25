@@ -1310,6 +1310,10 @@ app = create_app()
 
 
 def main(argv: list[str] | None = None) -> int:
+    # .env carries AUTOIMPLANTS_PUBLIC_URL. Reading it after argparse built its
+    # defaults left the job URL on loopback, which a cloud sandbox cannot POST to,
+    # so every run parked at awaiting_patch with no way for the design to arrive.
+    load_env(REPO_ROOT / ".env")
     parser = argparse.ArgumentParser(prog="autoimplants.server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)

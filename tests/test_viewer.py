@@ -464,3 +464,40 @@ def test_intake_still_demands_a_footprint_from_a_plate_plan(tmp_path):
     )
 
     assert "footprint_z_mm" in json.loads(out.stdout)[0]
+
+
+def test_a_fresh_case_clears_the_previous_design_history(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page(
+        {"case_id": "CASE-14"}, None, _report(geometry_fail=True), server_mode=True
+    )
+
+    # DATA.iterations is emptied for a case with no validated solid yet; without
+    # redrawing the track, its stale node stays clickable and selects an iteration
+    # that no longer exists, which current() answers with EMPTY_ITERATION (0/0).
+    assert "DATA.iterations=[];activeIteration=0;activeCheck=null;renderTimeline();" in html
+    # The chips the reset touches have to be the ones the page actually renders.
+    assert '$("t-marks").setAttribute("aria-pressed","false")' in html
+    assert '$("t-planning").setAttribute("aria-pressed","false")' in html
+    assert '$("t-find")' not in html and '$("t-plan")' not in html
+
+
+def test_the_page_keeps_listening_while_devin_writes_the_next_design(monkeypatch):
+    _patch_mesh_inputs(monkeypatch)
+
+    html = viewer.build_page(
+        {"case_id": "CASE-15"}, None, _report(geometry_fail=True), server_mode=True
+    )
+
+    # awaiting_patch is in the server's ACTIVE_STATES: iteration N failed and the
+    # next design is being written. If the page reads it as finished it closes the
+    # stream and never receives iteration N+1.
+    from autoimplants.server import ACTIVE_STATES
+
+    start = html.index("const working=[")
+    listed = html[start:html.index("].includes(run.status)", start)]
+    for state in ACTIVE_STATES:
+        assert f'"{state}"' in listed, state
+    assert '"queued"' in listed and '"revision_queued"' in listed
+    assert 'awaiting_patch:"Devin is designing"' in html
