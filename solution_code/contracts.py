@@ -306,7 +306,7 @@ class PlateCandidate:
 
 @dataclass(frozen=True)
 class SessionHandle:
-    """One Devin session working one candidate. See devin-api-setup.md."""
+    """One Devin session working one candidate."""
 
     session_id: str
     url: str
